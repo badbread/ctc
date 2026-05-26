@@ -37,7 +37,11 @@ CFGFILE="$CTC_CONFIG_DIR/config"         # persisted launch options + BASE
 #   CONTINUE = on | off                 (--continue: resume the dir's last convo)
 #   LAUNCH   = detached | attach        (ctc: backend-for-app vs open-in-terminal)
 # ---------------------------------------------------------------------------
-MODE="auto"
+# Default MODE is acceptEdits, not auto: a detached backend reachable from your
+# phone shouldn't run arbitrary commands with nobody watching. acceptEdits
+# auto-applies file edits but still gates command execution. Opt into auto in
+# the config or the options screen once you understand the tradeoff.
+MODE="acceptEdits"
 MODEL="default"
 RC="on"
 CONTINUE="off"
@@ -533,9 +537,23 @@ options_screen() {
 }
 
 # Echo the dirs of currently-live claude-* tmux sessions, one per line.
+# List ctc-managed sessions as "dir|state". state is "live" if a claude process
+# is actually running in the session, or "idle" if only a shell is left (claude
+# exited but the tmux session lingers) — a bare has-session check can't tell
+# those apart, and a crashed backend shouldn't read as healthy.
 list_live() {
-  "$TMUX_BIN" list-sessions -F '#{session_name}|#{session_path}' 2>/dev/null \
-    | awk -F'|' '$1 ~ /^claude-/{print $2}'
+  local name path cmds
+  while IFS='|' read -r name path; do
+    case "$name" in claude-*) ;; *) continue ;; esac
+    [ -n "$path" ] || continue
+    # commands running across all panes of this session
+    cmds="$("$TMUX_BIN" list-panes -t "$name" -F '#{pane_current_command}' 2>/dev/null)"
+    if printf '%s\n' "$cmds" | grep -qiE 'claude|node'; then
+      printf '%s|live\n' "$path"
+    else
+      printf '%s|idle\n' "$path"
+    fi
+  done < <("$TMUX_BIN" list-sessions -F '#{session_name}|#{session_path}' 2>/dev/null)
 }
 
 # Per-session actions when you select a RUNNING session: attach here, or kill.
@@ -560,9 +578,8 @@ running_session_actions() {
 # Sub-screen: pick a project to launch a NEW (detached) backend session.
 launch_new_screen() {
   local -a opts=() rows=() seen=" "
-  local h r live name
-  # recent (history) first, then all repos; skip ones already live
-  local -a liveset=(); while IFS= read -r live; do [ -n "$live" ] && liveset+=("$live"); done < <(list_live)
+  local h r name
+  # recent (history) first, then every repo under BASE
   if [ -f "$HISTFILE" ]; then
     while IFS= read -r h; do
       [ -d "$h" ] || continue
@@ -598,12 +615,20 @@ launch_new_screen() {
 
 # Top-level session manager.
 menu() {
-  local -a live=() rows=()
-  local d; while IFS= read -r d; do [ -n "$d" ] && live+=("$d"); done < <(list_live)
+  local -a live=() states=() rows=()
+  local d st; while IFS='|' read -r d st; do
+    [ -n "$d" ] && { live+=("$d"); states+=("${st:-live}"); }
+  done < <(list_live)
   local nlive=${#live[@]}
 
-  for d in "${live[@]}"; do
-    rows+=("$(printf '%s●%s %-20s %slive · connect from app%s' "$GRN" "$RST" "$(basename "$d")" "$DIM" "$RST")")
+  local i
+  for i in "${!live[@]}"; do
+    d="${live[i]}"
+    if [ "${states[i]}" = "idle" ]; then
+      rows+=("$(printf '%s◌%s %-20s %sidle · claude exited%s' "$GRY" "$RST" "$(basename "$d")" "$DIM" "$RST")")
+    else
+      rows+=("$(printf '%s●%s %-20s %slive · connect from app%s' "$GRN" "$RST" "$(basename "$d")" "$DIM" "$RST")")
+    fi
   done
   rows+=("${C3}┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄${RST}")
   rows+=("$(printf '%s[n]%s launch new session…' "$C1" "$RST")")
