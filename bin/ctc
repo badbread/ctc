@@ -60,6 +60,7 @@ load_cfg() {
     done < "$CFGFILE"
   fi
   [ -n "${CTC_BASE:-}" ] && BASE="${CTC_BASE/#\~/$HOME}"   # env wins
+  return 0   # don't let a false test above leak non-zero into set -e
 }
 
 # Persist options. Preserves BASE (not editable from the UI).
