@@ -46,6 +46,7 @@ MODEL="default"
 RC="on"
 CONTINUE="off"
 LAUNCH="detached"
+DEPTH="2"            # how many levels under BASE to scan for git repos (1 = flat)
 VALID_MODES="auto acceptEdits bypassPermissions default dontAsk plan"
 VALID_MODELS="default opus sonnet haiku"
 
@@ -62,6 +63,7 @@ load_cfg() {
         RC)       case "$v" in on|off) RC="$v";; esac ;;
         CONTINUE) case "$v" in on|off) CONTINUE="$v";; esac ;;
         LAUNCH)   case "$v" in detached|attach) LAUNCH="$v";; esac ;;
+        DEPTH)    case "$v" in ''|*[!0-9]*) ;; *) DEPTH="$v";; esac ;;
       esac
     done < "$CFGFILE"
   fi
@@ -72,8 +74,8 @@ load_cfg() {
 # Persist options. Preserves BASE (set on first run / via config).
 save_cfg() {
   local tmp; tmp="$(mktemp)"
-  printf 'BASE=%s\nMODE=%s\nMODEL=%s\nRC=%s\nCONTINUE=%s\nLAUNCH=%s\n' \
-    "$BASE" "$MODE" "$MODEL" "$RC" "$CONTINUE" "$LAUNCH" > "$tmp"
+  printf 'BASE=%s\nMODE=%s\nMODEL=%s\nRC=%s\nCONTINUE=%s\nLAUNCH=%s\nDEPTH=%s\n' \
+    "$BASE" "$MODE" "$MODEL" "$RC" "$CONTINUE" "$LAUNCH" "$DEPTH" > "$tmp"
   mv "$tmp" "$CFGFILE"
 }
 
@@ -409,12 +411,23 @@ launch() {
   return 0
 }
 
-# git repos directly under BASE, basename only.
+# Git repos under BASE, up to $DEPTH levels deep (1 = flat). Finds .git markers
+# and prints their parent dir. Prunes the usual noise so a deep scan stays fast
+# and doesn't wander into dependency trees.
 list_repos() {
-  local d
-  for d in "$BASE"/*/; do
-    [ -e "${d}.git" ] && printf '%s\n' "${d%/}"
-  done
+  [ -d "$BASE" ] || return 0
+  # .git sits one level below the repo, so search depth is DEPTH+1.
+  local md=$((DEPTH + 1))
+  # Prune dependency trees and NAS/OS junk (Synology #recycle / @eaDir, trashes,
+  # and other dotdirs — but NOT .git, which is what we're looking for) so a deep
+  # scan stays fast and the menu doesn't fill with deleted/backup copies.
+  find "$BASE" -mindepth 1 -maxdepth "$md" \
+       \( -name node_modules -o -name vendor -o -name .cache -o -name .venv \
+          -o -name '#recycle' -o -name '@eaDir' -o -name '.Trash*' \
+          -o \( -name '.*' ! -name '.git' \) \) -prune -o \
+       -name .git -print 2>/dev/null \
+    | sed 's#/\.git$##' \
+    | sort -u
 }
 
 # Build the ordered candidate list: live tmux sessions' dirs + history + repos.

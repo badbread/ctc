@@ -25,3 +25,9 @@ RC=on
 
 # Resume the directory's last conversation instead of a fresh one. on|off (--continue)
 CONTINUE=off
+
+# How many directory levels under BASE to scan for git repos. 1 = flat (BASE
+# directly contains your project folders). 2 = also find repos grouped one level
+# down, e.g. BASE/work/api, BASE/personal/site. Higher = slower. node_modules,
+# vendor, dotdirs, and NAS junk (#recycle, @eaDir) are always skipped.
+DEPTH=1
