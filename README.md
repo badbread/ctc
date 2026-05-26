@@ -88,19 +88,57 @@ ctc my-api          # fuzzy-jump: launch/connect the project matching "my-api"
 ctc ~/some/path     # launch in an explicit directory
 ```
 
-From a phone, add an SSH host that runs `ctc` on connect, e.g. in Termux
-`~/.ssh/config`:
+## Connect from your phone
+
+The idea on every client is the same: an SSH connection that forces a TTY and
+runs `ctc` on login. Set it up once and launching is a single tap.
+
+The host block is the same everywhere — `RemoteCommand` must be the full path if
+`ctc` isn't on the non-interactive SSH `PATH` (use `which ctc` on the box to
+check; `~/.local/bin` often isn't on it for non-login shells):
 
 ```
 Host ctc
-    HostName 100.x.y.z          # your box (Tailscale IP shown)
+    HostName 100.x.y.z          # your box's address (Tailscale IP shown)
     User you
-    RequestTTY force
-    RemoteCommand ctc
+    RequestTTY force            # ctc is a TUI — it needs a terminal
+    RemoteCommand ctc           # or the full path, e.g. /home/you/.local/bin/ctc
 ```
 
-then `ssh ctc`. (See [docs/phone-setup.md](docs/phone-setup.md) for the full
-phone walkthrough.)
+### Termux (Android)
+
+1. `pkg install openssh` if needed.
+2. Put the host block above in `~/.ssh/config`.
+3. `ssh ctc`.
+
+Optional one-word launch — add a function to `~/.bashrc`, then **reload it**:
+
+```bash
+echo 'ctc(){ ssh ctc; }' >> ~/.bashrc
+source ~/.bashrc            # the already-open shell won't see it until you do this
+```
+
+> Gotcha: if `ctc: command not found` right after adding the function, that's a
+> stale shell — `source ~/.bashrc` (or open a new Termux session). If `source`
+> still doesn't help, your Termux isn't reading `~/.bashrc`; put the function in
+> `~/.profile` instead and reopen Termux. For a banner/auto-launch on open, add
+> the line(s) to the bottom of `~/.bashrc`.
+
+Arrow keys and Tab live on Termux's extra-keys row; `Ctrl` is a chip there too
+(used for `Ctrl-b d` to detach — see below).
+
+### Blink Shell (iOS)
+
+Blink has first-class SSH hosts and good modifier-key support (best iOS option
+for a TUI). Add a host in **Settings → Hosts** (HostName, User, key) and set its
+startup command to `ctc`, or just run `ssh ctc -t ctc` from the Blink prompt.
+`Ctrl` and arrows are on the keyboard; Shift+Tab works.
+
+### Termius (iOS/Android)
+
+Create a host (address, user, key). Under the host's **Startup snippet / command**,
+put `ctc`. Termius shows a key row with `Ctrl`, arrows and `Tab` for navigation
+and detaching.
 
 ### Keys
 
