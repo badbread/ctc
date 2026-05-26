@@ -357,6 +357,56 @@ record_history() {
   mv "$tmp" "$HISTFILE"
 }
 
+# Claude stores per-project trust in ~/.claude.json under
+# projects["<abs-dir>"].hasTrustDialogAccepted. A detached backend gets a real
+# pty from tmux, so claude shows its "do you trust this folder?" dialog and
+# blocks — with nobody attached, the Remote Control session never registers.
+# We resolve that *before* launch by pre-trusting the dir, but only after the
+# user okays it in ctc's own prompt (the real dialog is unreachable here).
+CLAUDE_JSON="${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json"
+
+# 0 if claude already trusts $1; non-zero otherwise (incl. no config yet).
+project_trusted() {
+  [ -f "$CLAUDE_JSON" ] || return 1
+  command -v python3 >/dev/null 2>&1 || return 1
+  python3 - "$CLAUDE_JSON" "$1" <<'PY'
+import json, sys
+cfg, d = sys.argv[1], sys.argv[2]
+try:
+    p = json.load(open(cfg)).get("projects", {}).get(d, {})
+except Exception:
+    sys.exit(1)
+sys.exit(0 if p.get("hasTrustDialogAccepted") else 1)
+PY
+}
+
+# Mark $1 as trusted in ~/.claude.json (create/merge in place). Returns non-zero
+# if we can't safely edit it — caller then falls back to manual attach-and-accept.
+trust_project() {
+  command -v python3 >/dev/null 2>&1 || return 1
+  python3 - "$CLAUDE_JSON" "$1" <<'PY'
+import json, os, sys, tempfile
+cfg, d = sys.argv[1], sys.argv[2]
+try:
+    data = json.load(open(cfg)) if os.path.exists(cfg) else {}
+    if not isinstance(data, dict):
+        sys.exit(1)
+except Exception:
+    sys.exit(1)
+proj = data.setdefault("projects", {})
+proj.setdefault(d, {})["hasTrustDialogAccepted"] = True
+fd, tmp = tempfile.mkstemp(dir=os.path.dirname(cfg) or ".")
+try:
+    with os.fdopen(fd, "w") as f:
+        json.dump(data, f, indent=2)
+    os.replace(tmp, cfg)
+except Exception:
+    try: os.unlink(tmp)
+    except OSError: pass
+    sys.exit(1)
+PY
+}
+
 # Ensure a detached tmux session running claude exists for $1 (abs dir).
 # Creates it if missing. Echoes nothing; returns 0. Does NOT attach.
 ensure_session() {
@@ -375,6 +425,27 @@ launch() {
   [ -d "$dir" ] || die "Not a directory: $dir"
   dir="$(cd "$dir" && pwd)"               # canonicalize
   record_history "$dir"
+
+  # Pre-empt claude's trust dialog: a detached backend can't answer it, so the
+  # RC session would hang until you attach. Ask here instead, once per project.
+  if ! project_trusted "$dir"; then
+    printf '\n %s⚠ first launch%s  %s%s%s\n' "$YEL" "$RST" "$BOLD" "$dir" "$RST"
+    printf ' %sClaude shows a "trust this folder?" prompt the detached backend%s\n' "$GRY" "$RST"
+    printf ' %scan'\''t answer. Trust it now so launches work without attaching?%s [y/N]: ' "$GRY" "$RST"
+    local yn; read -r yn
+    case "$yn" in
+      y|Y)
+        if trust_project "$dir"; then
+          printf ' %s✓ trusted%s\n' "$GRN" "$RST"
+        else
+          printf ' %scould not edit %s%s\n' "$YEL" "$CLAUDE_JSON" "$RST"
+          printf ' %sattach once (LAUNCH=attach) and accept the dialog manually.%s\n' "$GRY" "$RST"
+        fi ;;
+      *)
+        printf ' %snot trusted — attach once and accept the dialog to connect.%s\n' "$GRY" "$RST" ;;
+    esac
+  fi
+
   local sess; sess="$(session_name "$dir")"
   local existed=0
   "$TMUX_BIN" has-session -t "$sess" 2>/dev/null && existed=1
