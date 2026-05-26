@@ -1,10 +1,13 @@
 # ctc — Claude Terminal Connect
 
-Launch **Claude Code** as detached, Remote-Control-enabled backends and manage
-them from a phone-friendly terminal menu. You start a coding session on your
-Linux box from your phone in two taps, then drive the actual work from the
-**Claude mobile/web app** — the session keeps running even when your phone
-disconnects.
+Start a **Claude Code** session on your always-on Linux box straight from your
+phone, then walk away. SSH in (over Tailscale or WireGuard), pick a project from
+a phone-friendly menu, and `ctc` launches `claude --remote-control` as a detached
+session you drive from the official **Claude app** — lock your phone or lose
+signal and it keeps running. It's a single bash script: no web server, no
+Electron, no browser-exposed shell, just the SSH you already trust.
+Claude-Code-native by design (Shift+Tab permission modes, flag-accurate options)
+and safe by default (`acceptEdits`, never silent full-auto).
 
 ```
  ┌─┐┌┬┐┌─┐  claude terminal connect
@@ -73,6 +76,15 @@ This space is crowded; here's the honest positioning.
   specifically into Claude Code's **Remote Control** (so sessions appear in the
   Claude app, not just an attached terminal) and mirrors Claude Code's UI
   (Shift+Tab modes, the flag-accurate options screen).
+- **vs. [Claude Code Channels](https://www.macstories.net/stories/first-look-hands-on-with-claude-codes-new-telegram-and-discord-integrations/)**
+  (official Telegram/Discord/iMessage integration, research preview since
+  2026-03): Channels lets you *message* Claude Code from a chat app, which is a
+  different ergonomic than ctc's launcher menu — and notably it has **the same
+  keepalive problem**: Anthropic's own docs say it has no persistent background
+  mode and that "combining with tmux, screen, or a background process is the
+  current workaround." So Channels doesn't replace the detached-session trick;
+  ctc is a way to *host* exactly the kind of always-on session Channels expects,
+  with per-project lifecycle management on top. They compose.
 - **vs. web/Electron UIs** (CloudCLI/claudecodeui, Codeman): those give a
   browser file tree + shell with no SSH client. `ctc` is the opposite bet — no
   server to run, no extra attack surface, just a script on your box you reach
