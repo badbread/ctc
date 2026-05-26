@@ -1,0 +1,19 @@
+# ctc config — copy to ~/.config/ctc/config (or $XDG_CONFIG_HOME/ctc/config)
+# Lines are KEY=value. Unknown keys are ignored. Env vars (CTC_BASE) override.
+
+# Where your project directories live. ctc lists git repos + recent dirs here.
+# ~ is expanded. Default: ~/projects
+BASE=~/projects
+
+# Default launch behavior (also changeable live via the [o] options screen):
+
+# detached = launch claude --remote-control in a detached tmux backend you
+#            connect to from the Claude app (recommended for phone use).
+# attach   = open the session in your terminal over SSH instead.
+LAUNCH=detached
+
+# claude --permission-mode: auto | acceptEdits | bypassPermissions | default | plan
+MODE=auto
+
+# Remote Control: on = pass --remote-control (so the Claude app can see it). on|off
+RC=on

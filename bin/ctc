@@ -1,0 +1,572 @@
+#!/usr/bin/env bash
+# ctc — Claude Terminal Connect. A phone-friendly TUI that launches Claude Code
+# as detached, Remote-Control-enabled backends in tmux, then lets you manage
+# them. You drive the actual coding from the Claude mobile/web app; ctc is the
+# launcher/manager you reach over SSH (e.g. from Termux on Android).
+#
+#   ctc            -> session manager (running sessions, launch new, options)
+#   ctc <name>     -> fuzzy-jump: launch/connect the project matching <name>
+#   ctc <path>     -> launch in an explicit directory
+#
+# Config: ~/.config/ctc/config (see ctc.config.example). Env vars override file.
+# Project: https://github.com/badbread/ctc   License: MIT
+set -euo pipefail
+
+# --- Resolve config dir (XDG-friendly) -------------------------------------
+CTC_CONFIG_DIR="${CTC_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/ctc}"
+CTC_STATE_DIR="${CTC_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/ctc}"
+mkdir -p "$CTC_CONFIG_DIR" "$CTC_STATE_DIR" 2>/dev/null || true
+
+# Defaults (overridable by the config file, then by env vars).
+BASE="${CTC_BASE:-$HOME/projects}"       # where your project dirs live
+CLAUDE_BIN="$(command -v claude || echo claude)"
+TMUX_BIN="$(command -v tmux || echo tmux)"
+
+HISTFILE="$CTC_STATE_DIR/history"        # most-recent-first list of launched dirs
+CFGFILE="$CTC_CONFIG_DIR/config"         # persisted launch options + BASE
+
+# ---------------------------------------------------------------------------
+# Launch options (persisted in $CFGFILE). Defaults: auto mode + Remote Control,
+# launched DETACHED (backend instance you connect to from the Claude app via RC).
+#   MODE   = one of: auto acceptEdits bypassPermissions default plan
+#   RC     = on | off       (--remote-control)
+#   LAUNCH = detached | attach
+# ---------------------------------------------------------------------------
+MODE="auto"
+RC="on"
+LAUNCH="detached"
+VALID_MODES="auto acceptEdits bypassPermissions default plan"
+
+load_cfg() {
+  # Read only the keys we own; ignore anything else for safety.
+  if [ -f "$CFGFILE" ]; then
+    local k v
+    while IFS='=' read -r k v; do
+      # strip surrounding quotes/whitespace from value
+      v="${v#\"}"; v="${v%\"}"
+      case "$k" in
+        BASE)   [ -n "$v" ] && BASE="${v/#\~/$HOME}" ;;
+        MODE)   case " $VALID_MODES " in *" $v "*) MODE="$v";; esac ;;
+        RC)     case "$v" in on|off) RC="$v";; esac ;;
+        LAUNCH) case "$v" in detached|attach) LAUNCH="$v";; esac ;;
+      esac
+    done < "$CFGFILE"
+  fi
+  # Env vars win over the file.
+  [ -n "${CTC_BASE:-}" ] && BASE="${CTC_BASE/#\~/$HOME}"
+}
+
+# Persist options. Preserves BASE (we don't rewrite it from the UI).
+save_cfg() {
+  local tmp; tmp="$(mktemp)"
+  printf 'BASE=%s\nMODE=%s\nRC=%s\nLAUNCH=%s\n' "$BASE" "$MODE" "$RC" "$LAUNCH" > "$tmp"
+  mv "$tmp" "$CFGFILE"
+}
+
+# Build the claude argument array from current MODE/RC into global CLAUDE_ARGS.
+build_claude_args() {
+  CLAUDE_ARGS=()
+  case "$MODE" in
+    default) ;;  # no flag — claude's own default
+    *) CLAUDE_ARGS+=(--permission-mode "$MODE") ;;
+  esac
+  [ "$RC" = "on" ] && CLAUDE_ARGS+=(--remote-control)
+  return 0   # never let the && above leak a non-zero exit into set -e
+}
+
+# ---------------------------------------------------------------------------
+# Look & feel. Colors only when stdout is a TTY and NO_COLOR is unset.
+# 256-color theme with a graceful fall-back to plain text when piped.
+# ---------------------------------------------------------------------------
+if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
+  E=$'\033'
+  RST="${E}[0m";  BOLD="${E}[1m";  DIM="${E}[2m"
+  # cyber palette (256-color)
+  C1="${E}[38;5;51m"    # bright cyan
+  C2="${E}[38;5;45m"    # cyan
+  C3="${E}[38;5;39m"    # blue-cyan
+  MAG="${E}[38;5;201m"  # hot magenta
+  GRN="${E}[38;5;46m"   # neon green
+  YEL="${E}[38;5;226m"  # yellow
+  ORG="${E}[38;5;208m"  # orange
+  GRY="${E}[38;5;244m"  # grey
+  RED="${E}[38;5;196m"  # red
+else
+  RST=""; BOLD=""; DIM=""
+  C1=""; C2=""; C3=""; MAG=""; GRN=""; YEL=""; ORG=""; GRY=""; RED=""
+fi
+
+# Terminal width (fallback 80), capped so the banner stays sane on huge screens.
+term_cols() {
+  local c="${COLUMNS:-0}"
+  [ "$c" -gt 0 ] 2>/dev/null || c="$(tput cols 2>/dev/null || echo 80)"
+  [ "$c" -gt 0 ] 2>/dev/null || c=80
+  [ "$c" -gt 100 ] && c=100
+  printf '%s' "$c"
+}
+
+# A full-width horizontal rule of repeated char $1 in color $2.
+rule() {
+  local ch="${1:-─}" col="${2:-$C3}" w; w="$(term_cols)"
+  printf '%s' "$col"
+  local i=0; while [ "$i" -lt "$w" ]; do printf '%s' "$ch"; i=$((i+1)); done
+  printf '%s\n' "$RST"
+}
+
+die() { printf '%s%s%s\n' "$RED" "$*" "$RST" >&2; exit 1; }
+
+# ---------------------------------------------------------------------------
+# Interactive selectors (Claude-style: arrow/j-k to move, Enter to choose).
+# Fall back to a plain numbered prompt when stdin isn't a TTY.
+# ---------------------------------------------------------------------------
+have_tty() { [ -t 0 ] && [ -t 1 ]; }
+
+# Read one logical keypress from the TTY -> emits a token on stdout:
+#   up down left right enter space a-z A-Z digits  esc  (or '' on EOF)
+read_key() {
+  local k rest
+  IFS= read -rsn1 k 2>/dev/null || { printf 'eof'; return; }
+  case "$k" in
+    '')            printf 'enter'; return ;;          # bare CR/LF
+    ' ')           printf 'space'; return ;;
+    $'\033')                                           # ESC — maybe a sequence
+      # try to grab the rest of a CSI seq without blocking long
+      IFS= read -rsn2 -t 0.01 rest 2>/dev/null || rest=""
+      case "$rest" in
+        '[A') printf 'up' ;;   '[B') printf 'down' ;;
+        '[C') printf 'right';; '[D') printf 'left' ;;
+        '')   printf 'esc'  ;;                          # lone ESC
+        *)    printf 'esc'  ;;
+      esac
+      return ;;
+    *)             printf '%s' "$k"; return ;;
+  esac
+}
+
+# Single-select picker.
+#   $1 = title (already-colored ok)
+#   remaining args = display rows
+# Sets global PICK_INDEX (0-based) and returns 0, or returns 1 on cancel.
+# render_extra() (if defined) is called after the list for per-screen footers.
+pick_one() {
+  local title="$1"; shift
+  local -a rows=("$@")
+  local n=${#rows[@]} cur=0
+  [ "$n" -gt 0 ] || return 1
+
+  if ! have_tty; then
+    # non-TTY fallback: numbered prompt
+    banner; printf ' %s\n\n' "$title"
+    local i=1; for r in "${rows[@]}"; do printf '   %s%2d)%s %s\n' "$C3" "$i" "$RST" "$r"; i=$((i+1)); done
+    printf '\n %s▶%s select [1]: ' "$MAG" "$RST"
+    local c; read -r c; c="${c:-1}"
+    case "$c" in ''|*[!0-9]*) return 1 ;; esac
+    [ "$c" -ge 1 ] && [ "$c" -le "$n" ] || return 1
+    PICK_INDEX=$((c-1)); return 0
+  fi
+
+  # optional: PICK_SKIP holds an index the cursor jumps over (e.g. a divider)
+  local skip="${PICK_SKIP:-_none_}"
+  [ "$cur" = "$skip" ] && cur=$(( (cur+1) % n ))
+  # optional: PICK_KEYS = space-separated "letter:index" hotkeys (e.g. "a:0 k:1 b:2").
+  # These take precedence over vim j/k, so a screen that registers k/j/q overrides nav.
+  local keys="${PICK_KEYS:-}"
+  while :; do
+    banner; printf ' %s\n' "$title"
+    local i=0
+    for r in "${rows[@]}"; do
+      if [ "$i" -eq "$cur" ]; then
+        printf '%s%s ▎%s %s%s%s\n' "$MAG" "$BOLD" "$RST" "$BOLD" "$r" "$RST"
+      else
+        printf '   %s\n' "$r"
+      fi
+      i=$((i+1))
+    done
+    declare -F render_extra >/dev/null 2>&1 && render_extra
+    printf '%s   ↑↓/jk · enter · q%s\n' "$DIM" "$RST"
+    local key; key="$(read_key)"
+    # hotkey match first (screen-registered letters win over nav)
+    if [ -n "$keys" ]; then
+      local pair found=""
+      for pair in $keys; do
+        [ "${pair%%:*}" = "$key" ] && { found="${pair##*:}"; break; }
+      done
+      [ -n "$found" ] && { PICK_INDEX=$found; return 0; }
+    fi
+    case "$key" in
+      up|k)    cur=$(( (cur-1+n) % n )); [ "$cur" = "$skip" ] && cur=$(( (cur-1+n) % n )) ;;
+      down|j)  cur=$(( (cur+1) % n )); [ "$cur" = "$skip" ] && cur=$(( (cur+1) % n )) ;;
+      enter)   [ "$cur" = "$skip" ] || { PICK_INDEX=$cur; return 0; } ;;
+      q|esc|eof) return 1 ;;
+    esac
+  done
+}
+
+# Multi-select picker (for kill). Space marks, 'a' toggles all, Enter confirms.
+#   $1 = title; remaining args = rows
+# Sets global PICK_MARKS (array of 0/1, parallel to rows); returns 0 on Enter,
+# 1 on cancel.
+pick_many() {
+  local title="$1"; shift
+  local -a rows=("$@")
+  local n=${#rows[@]} cur=0 i
+  [ "$n" -gt 0 ] || return 1
+  PICK_MARKS=(); for ((i=0;i<n;i++)); do PICK_MARKS[i]=0; done
+
+  if ! have_tty; then return 1; fi   # multi-select needs a TTY
+
+  while :; do
+    banner; printf ' %s\n\n' "$title"
+    for ((i=0;i<n;i++)); do
+      local box="[ ]"; [ "${PICK_MARKS[i]}" = "1" ] && box="${RED}[x]${RST}"
+      if [ "$i" -eq "$cur" ]; then
+        printf '  %s%s ❯%s %s %s%s%s\n' "$MAG" "$BOLD" "$RST" "$box" "$BOLD" "${rows[i]}" "$RST"
+      else
+        printf '     %s %s%s%s\n' "$box" "$DIM" "${rows[i]}" "$RST"
+      fi
+    done
+    printf '\n %s↑/↓ j/k%s move   %sSpace%s mark   %sa%s all   %sEnter%s confirm   %sq/Esc%s cancel\n' \
+      "$GRY" "$RST" "$C2" "$RST" "$C2" "$RST" "$GRN" "$RST" "$ORG" "$RST"
+    case "$(read_key)" in
+      up|k)    cur=$(( (cur-1+n) % n )) ;;
+      down|j)  cur=$(( (cur+1) % n )) ;;
+      space)   PICK_MARKS[cur]=$(( 1 - PICK_MARKS[cur] )) ;;
+      a|A)
+        # if any unmarked -> mark all; else clear all
+        local anyoff=0; for ((i=0;i<n;i++)); do [ "${PICK_MARKS[i]}" = "0" ] && anyoff=1; done
+        for ((i=0;i<n;i++)); do PICK_MARKS[i]=$anyoff; done ;;
+      enter)   return 0 ;;
+      q|esc|eof) return 1 ;;
+    esac
+  done
+}
+
+# Compact 3-line banner — fits a phone viewport with the keyboard up.
+# (UI/feel overhaul — rounded panels + Claude-style status line — is the next pass.)
+banner() {
+  clear 2>/dev/null || true
+  printf '%s ┌─┐┌┬┐┌─┐%s  %s%sclaude terminal connect%s\n' "$C1" "$RST" "$BOLD" "$MAG" "$RST"
+  printf '%s │   │ │  %s  %sdetached RC backends · %s%s%s\n' "$C2" "$RST" "$GRY" "$C2" "$(hostname)" "$RST"
+  printf '%s └─┘ ┴ └─┘%s\n' "$C3" "$RST"
+  rule '─' "$C3"
+}
+
+# tmux session name for a given dir: claude-<basename>, sanitized for tmux.
+session_name() {
+  local b; b="$(basename "$1")"
+  printf 'claude-%s' "$(printf '%s' "$b" | tr -c 'A-Za-z0-9_-' '_')"
+}
+
+# Record a launch (dedup, newest first, cap 20).
+record_history() {
+  local dir="$1" tmp
+  tmp="$(mktemp)"
+  { printf '%s\n' "$dir"; [ -f "$HISTFILE" ] && grep -vxF "$dir" "$HISTFILE" || true; } \
+    | grep -vE '^$' | head -20 > "$tmp"
+  mv "$tmp" "$HISTFILE"
+}
+
+# Ensure a detached tmux session running claude exists for $1 (abs dir).
+# Creates it if missing. Echoes nothing; returns 0. Does NOT attach.
+ensure_session() {
+  local dir="$1" sess; sess="$(session_name "$dir")"
+  if ! "$TMUX_BIN" has-session -t "$sess" 2>/dev/null; then
+    build_claude_args
+    "$TMUX_BIN" new-session -d -s "$sess" -c "$dir" "$CLAUDE_BIN" "${CLAUDE_ARGS[@]}"
+  fi
+}
+
+# Launch Claude for $1 (abs, existing dir). Honors $LAUNCH:
+#   detached -> start a backend RC session (or reuse), return to menu (no attach)
+#   attach   -> start if needed, then attach this terminal (exec)
+launch() {
+  local dir="$1"
+  [ -d "$dir" ] || die "Not a directory: $dir"
+  dir="$(cd "$dir" && pwd)"               # canonicalize
+  record_history "$dir"
+  local sess; sess="$(session_name "$dir")"
+  local existed=0
+  "$TMUX_BIN" has-session -t "$sess" 2>/dev/null && existed=1
+
+  if [ "$LAUNCH" = "attach" ]; then
+    ensure_session "$dir"
+    if [ "$existed" = 1 ]; then
+      printf '\n %s↻ REATTACH%s  %s%s%s  %s(%s)%s\n' "$GRN" "$RST" "$BOLD" "$sess" "$RST" "$GRY" "$dir" "$RST"
+    else
+      build_claude_args
+      printf '\n %s＋ NEW%s  %s%s%s  %sclaude %s%s\n' "$C1" "$RST" "$BOLD" "$sess" "$RST" "$DIM" "${CLAUDE_ARGS[*]}" "$RST"
+    fi
+    # 2s reminder: detach cleanly (keeps it running) vs /exit (ends it)
+    printf ' %s%s⎚ Ctrl-b then d%s %sto detach (keeps it running) · %s/exit%s ends it%s\n' \
+      "$YEL" "$BOLD" "$RST" "$GRY" "$C2" "$GRY" "$RST"
+    sleep 2
+    # No exec: keep ctc alive underneath tmux so detaching returns to the menu.
+    # Tolerate non-zero (e.g. the session ended via /exit while attached) so
+    # set -e doesn't kill ctc — we want to fall back to the menu either way.
+    "$TMUX_BIN" attach-session -t "$sess" || true
+    return 0
+  fi
+
+  # detached (backend) mode — launch and come back to the menu
+  ensure_session "$dir"
+  build_claude_args
+  if [ "$existed" = 1 ]; then
+    printf '\n %s● already running%s  %s%s%s\n' "$GRN" "$RST" "$BOLD" "$sess" "$RST"
+  else
+    printf '\n %s▸ launched%s  %s%s%s  %s(claude %s)%s\n' "$GRN" "$RST" "$BOLD" "$sess" "$RST" "$DIM" "${CLAUDE_ARGS[*]}" "$RST"
+  fi
+  [ "$RC" = "on" ] && printf ' %sconnect from the Claude app · session: %s%s%s\n' "$GRY" "$C2" "$sess" "$RST"
+  sleep 1
+  return 0
+}
+
+# git repos directly under BASE, basename only.
+list_repos() {
+  local d
+  for d in "$BASE"/*/; do
+    [ -e "${d}.git" ] && printf '%s\n' "${d%/}"
+  done
+}
+
+# Build the ordered candidate list: live tmux sessions' dirs + history + repos.
+resolve_arg() {
+  # $1 is a user token (e.g. "infra"). Match against repo basenames.
+  local tok="$1" match
+  match="$(list_repos | awk -F/ -v t="$tok" 'tolower($NF) ~ tolower(t){print; c++} END{exit c!=1}')" \
+    && { printf '%s\n' "$match"; return 0; }
+  # not exactly one match: if it's a real path, accept it
+  if [ -d "$tok" ]; then printf '%s\n' "$tok"; return 0; fi
+  return 1
+}
+
+# Human-readable one-liner of the current launch options, for the status bar.
+mode_label() {
+  case "$MODE" in
+    auto)              printf '%sauto%s'        "$GRN" "$RST" ;;
+    acceptEdits)       printf '%sacceptEdits%s' "$C2"  "$RST" ;;
+    bypassPermissions) printf '%sBYPASS!%s'     "$RED" "$RST" ;;
+    plan)              printf '%splan%s'        "$YEL" "$RST" ;;
+    default)           printf '%sdefault%s'     "$GRY" "$RST" ;;
+  esac
+}
+rc_label() {
+  if [ "$RC" = "on" ]; then printf '%sRC●%s' "$GRN" "$RST"
+  else printf '%sRC○%s' "$GRY" "$RST"; fi
+}
+
+# Footer used by options_screen's pick_one: shows the resulting launch line.
+render_options_footer() {
+  build_claude_args
+  printf '\n   %sresulting launch:%s %sclaude %s%s\n' "$GRY" "$RST" "$DIM" "${CLAUDE_ARGS[*]}" "$RST"
+  [ "$MODE" = "bypassPermissions" ] && \
+    printf '   %s⚠ bypass approves EVERYTHING, including destructive ops%s\n' "$RED" "$RST"
+  return 0
+}
+
+# Sub-picker: choose the permission mode from the full list.
+choose_mode() {
+  local -a labels descs=(
+    "autonomous, auto-approves safe actions"
+    "auto-accept file edits, ask before commands"
+    "approve EVERYTHING incl. destructive ops"
+    "no permission flag (claude's default)"
+    "plan first, don't act"
+  )
+  # rows in VALID_MODES order: auto acceptEdits bypassPermissions default plan
+  labels=(
+    "auto                $(printf '%s' "$DIM")${descs[0]}$RST"
+    "acceptEdits         $DIM${descs[1]}$RST"
+    "bypassPermissions   $RED${descs[2]}$RST"
+    "default             $DIM${descs[3]}$RST"
+    "plan                $DIM${descs[4]}$RST"
+  )
+  local -a vals=(auto acceptEdits bypassPermissions default plan)
+  pick_one "${BOLD}${C3} PERMISSION MODE ${RST}  (currently: $(mode_label))" "${labels[@]}" || return 0
+  MODE="${vals[$PICK_INDEX]}"; save_cfg
+}
+
+launch_label() {
+  if [ "$LAUNCH" = "detached" ]; then printf '%sdetached%s %s(backend / connect from app)%s' "$C2" "$RST" "$DIM" "$RST"
+  else printf '%sattach%s %s(open here over ssh)%s' "$GRN" "$RST" "$DIM" "$RST"; fi
+}
+
+# Settings screen, Claude-style arrow menu.
+options_screen() {
+  while :; do
+    local -a rows=(
+      "launch mode       $(printf '→') $(launch_label)"
+      "permission mode   $(printf '→') $(mode_label)"
+      "remote control    $(printf '→') $(rc_label)"
+      "${GRY}back to menu${RST}"
+    )
+    render_extra() { render_options_footer; }
+    pick_one "${BOLD}${C3} OPTIONS ${RST}  ${GRY}apply to NEW sessions${RST}" "${rows[@]}"
+    local rc=$?
+    unset -f render_extra
+    [ "$rc" -ne 0 ] && return 0           # cancelled -> back
+    case "$PICK_INDEX" in
+      0) [ "$LAUNCH" = "detached" ] && LAUNCH=attach || LAUNCH=detached; save_cfg ;;
+      1) choose_mode ;;
+      2) [ "$RC" = "on" ] && RC=off || RC=on; save_cfg ;;
+      3) return 0 ;;
+    esac
+  done
+}
+
+# Echo the dirs of currently-live claude-* tmux sessions, one per line.
+list_live() {
+  "$TMUX_BIN" list-sessions -F '#{session_name}|#{session_path}' 2>/dev/null \
+    | awk -F'|' '$1 ~ /^claude-/{print $2}'
+}
+
+# Per-session actions when you select a RUNNING session: attach here, or kill.
+running_session_actions() {
+  local dir="$1" sess; sess="$(session_name "$dir")"
+  local -a rows=(
+    "$(printf '%s[a]%s attach here %s(ssh/tmux)%s' "$GRN" "$RST" "$DIM" "$RST")"
+    "$(printf '%s[k]%s kill this session' "$RED" "$RST")"
+    "$(printf '%s[b]%s back' "$GRY" "$RST")"
+  )
+  PICK_KEYS="a:0 k:1 b:2" \
+    pick_one "$(printf '%s%s%s  %s%s%s' "$BOLD" "$(basename "$dir")" "$RST" "$GRY" "$sess" "$RST")" "${rows[@]}" \
+    || return 0
+  case "$PICK_INDEX" in
+    0) LAUNCH=attach launch "$dir" ;;                 # attach via tmux (exec)
+    1) "$TMUX_BIN" kill-session -t "$sess" 2>/dev/null \
+         && { printf '\n %s✗ killed%s %s\n' "$RED" "$RST" "$sess"; sleep 1; } ;;
+    2) return 0 ;;
+  esac
+}
+
+# Sub-screen: pick a project to launch a NEW (detached) backend session.
+launch_new_screen() {
+  local -a opts=() rows=() seen=" "
+  local h r live name
+  # recent (history) first, then all repos; skip ones already live
+  local -a liveset=(); while IFS= read -r live; do [ -n "$live" ] && liveset+=("$live"); done < <(list_live)
+  if [ -f "$HISTFILE" ]; then
+    while IFS= read -r h; do
+      [ -d "$h" ] || continue
+      case "$seen" in *" $h "*) ;; *) opts+=("$h"); seen+="$h ";; esac
+    done < "$HISTFILE"
+  fi
+  local hist_end=${#opts[@]}
+  while IFS= read -r r; do
+    case "$seen" in *" $r "*) ;; *) opts+=("$r"); seen+="$r ";; esac
+  done < <(list_repos)
+
+  local i=0
+  for o in "${opts[@]}"; do
+    name="$(basename "$o")"
+    if [ "$i" -lt "$hist_end" ]; then rows+=("$(printf '%s◷%s %s' "$YEL" "$RST" "$name")")
+    else rows+=("$(printf '%s·%s %s%s%s' "$GRY" "$RST" "$DIM" "$name" "$RST")"); fi
+    i=$((i+1))
+  done
+  rows+=("${C3}┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄${RST}")
+  rows+=("$(printf '%s[/]%s type / paste a path' "$ORG" "$RST")")
+  local IDX_DIV=$((${#opts[@]})) IDX_PATH=$(( ${#opts[@]} + 1 ))
+
+  PICK_SKIP=$IDX_DIV PICK_KEYS="/:$IDX_PATH" \
+    pick_one "${DIM}launch new — pick a project${RST}" "${rows[@]}" || return 0
+  case "$PICK_INDEX" in
+    "$IDX_PATH")
+      printf ' %spath:%s ' "$ORG" "$RST"; local p; read -r p
+      [ -n "$p" ] || return 0
+      launch "$p" ;;
+    *) launch "${opts[$PICK_INDEX]}" ;;
+  esac
+}
+
+# Top-level session manager.
+menu() {
+  local -a live=() rows=()
+  local d; while IFS= read -r d; do [ -n "$d" ] && live+=("$d"); done < <(list_live)
+  local nlive=${#live[@]}
+
+  for d in "${live[@]}"; do
+    rows+=("$(printf '%s●%s %-20s %slive · connect from app%s' "$GRN" "$RST" "$(basename "$d")" "$DIM" "$RST")")
+  done
+  rows+=("${C3}┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄${RST}")
+  rows+=("$(printf '%s[n]%s launch new session…' "$C1" "$RST")")
+  rows+=("$(printf '%s[o]%s options   %s%s %s %s%s' "$ORG" "$RST" "$DIM" "$(mode_label)" "$(rc_label)" "$LAUNCH" "$RST")")
+  local IDX_DIV=$nlive IDX_NEW=$((nlive+1)) IDX_OPT=$((nlive+2))
+  local IDX_KILL=-1 IDX_QUIT
+  if [ "$nlive" -gt 1 ]; then
+    rows+=("$(printf '%s[k]%s kill sessions… %s(multi)%s' "$RED" "$RST" "$DIM" "$RST")")
+    IDX_KILL=$((nlive+3)); IDX_QUIT=$((nlive+4))
+  else
+    IDX_QUIT=$((nlive+3))
+  fi
+  rows+=("$(printf '%s[q]%s quit' "$GRY" "$RST")")
+
+  local title
+  if [ "$nlive" -gt 0 ]; then
+    title="$(printf '%s%d running%s %s· select to manage%s' "$GRN" "$nlive" "$RST" "$DIM" "$RST")"
+  else
+    title="$(printf '%sno running sessions · launch one below%s' "$DIM" "$RST")"
+  fi
+  local hk="n:$IDX_NEW o:$IDX_OPT"
+  [ "$IDX_KILL" -ge 0 ] && hk="$hk k:$IDX_KILL"
+  PICK_SKIP=$IDX_DIV PICK_KEYS="$hk" pick_one "$title" "${rows[@]}"
+  [ "$?" -ne 0 ] && { printf '%s  later.%s\n' "$GRY" "$RST"; exit 0; }
+
+  case "$PICK_INDEX" in
+    "$IDX_NEW")  launch_new_screen; menu ;;
+    "$IDX_OPT")  options_screen; menu ;;
+    "$IDX_KILL") kill_screen "$nlive" "${live[@]}"; menu ;;
+    "$IDX_QUIT") printf '%s  later.%s\n' "$GRY" "$RST"; exit 0 ;;
+    *) running_session_actions "${live[$PICK_INDEX]}"; menu ;;   # a running session
+  esac
+}
+
+# Multi-select kill screen. $1 = live_count, rest = live dirs (opts[0..live-1]).
+kill_screen() {
+  local live_count="$1"; shift
+  local -a live=("$@")
+  if [ "$live_count" -eq 0 ] || [ "${#live[@]}" -eq 0 ]; then
+    banner; printf '\n %sno live sessions to kill%s\n' "$YEL" "$RST"; sleep 1; return 0
+  fi
+  local -a rows=() d
+  for d in "${live[@]}"; do
+    rows+=("$(printf '%s  %s(%s)%s' "$(basename "$d")" "$GRY" "$d" "$RST")")
+  done
+  pick_many "${BOLD}${RED} KILL SESSIONS ${RST}  ${GRY}Space to mark, Enter to kill${RST}" "${rows[@]}" \
+    || return 0
+  # collect marked
+  local -a victims=(); local i
+  for ((i=0;i<${#live[@]};i++)); do [ "${PICK_MARKS[i]}" = "1" ] && victims+=("${live[i]}"); done
+  [ "${#victims[@]}" -eq 0 ] && { printf '\n %snothing marked%s\n' "$GRY" "$RST"; sleep 1; return 0; }
+  printf '\n %skill %d session(s)?%s [y/N]: ' "$RED" "${#victims[@]}" "$RST"
+  local yn; read -r yn
+  case "$yn" in
+    y|Y)
+      for d in "${victims[@]}"; do
+        local sess; sess="$(session_name "$d")"
+        "$TMUX_BIN" kill-session -t "$sess" 2>/dev/null \
+          && printf ' %s✗ killed%s %s\n' "$RED" "$RST" "$sess" \
+          || printf ' %scould not kill%s %s\n' "$YEL" "$RST" "$sess"
+      done; sleep 1 ;;
+    *) printf ' %skept%s\n' "$GRY" "$RST"; sleep 1 ;;
+  esac
+  return 0
+}
+
+main() {
+  [ -x "$CLAUDE_BIN" ] || die "claude not found"
+  [ -x "$TMUX_BIN" ]  || die "tmux not found"
+  load_cfg
+  if [ "$#" -eq 0 ]; then
+    menu
+  else
+    local target
+    if target="$(resolve_arg "$1")"; then
+      launch "$target"   # returns here (detached, or after detaching from attach)
+      menu               # then drop into the session manager
+    else
+      printf '%sNo single match for "%s" — pick from the list:%s\n' "$YEL" "$1" "$RST"
+      menu
+    fi
+  fi
+}
+
+main "$@"
