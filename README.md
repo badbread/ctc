@@ -20,7 +20,29 @@ disconnects.
    ↑↓/jk · enter · q
 ```
 
-## Why
+## Why I built this
+
+I run Claude Code on a box at home and wanted to use it from my phone. My routine
+was: open a terminal app, `ssh` into the box, `cd` to whatever project I wanted,
+type `claude`, and start working. Every single time:
+
+```bash
+ssh mybox
+cd ~/projects/the-thing-i-want
+claude
+```
+
+Three steps, every time, thumb-typing a path on a phone keyboard. Worse, that
+session lived in my SSH connection — lock the phone or switch apps and the
+connection dropped, taking `claude` with it. And it had nothing to do with
+Claude Code's nice mobile app; I was staring at a raw terminal.
+
+`ctc` is that routine collapsed into one command and made drop-proof: pick a
+project from a menu, it launches a Remote-Control-enabled `claude` in a detached
+tmux session that survives disconnects, and then I drive it from the **Claude
+app** — the terminal's just the launcher.
+
+## Why it works this way
 
 [Claude Code's Remote Control](https://code.claude.com/docs/en/remote-control)
 lets you drive a running `claude` session from the Claude app — but the `claude`
@@ -33,6 +55,33 @@ tmux session** (the process stays alive, no terminal attached), one per project,
 and gives you a small arrow-key TUI to launch / list / kill those backends. You
 connect to them from the Claude app. From a phone over SSH (Termux on Android,
 Blink/Termius on iOS), it's a two-tap workflow.
+
+## How this compares
+
+This space is crowded; here's the honest positioning.
+
+- **vs. `claude remote-control` server mode** (the official persistent server,
+  `--spawn worktree`, `--capacity`): server mode is great when you're *at* the
+  machine — it serves many sessions from one running process and you scan a QR
+  to connect. `ctc` is aimed at the *phone-first* case: spawn a fresh
+  per-project backend **from your phone over SSH** and manage its lifecycle
+  (launch/list/attach/kill) from a terminal menu, without being at the box. The
+  two compose fine — you can point `ctc`'s launch at server mode if you prefer
+  one process.
+- **vs. [vaibhav](https://github.com/manojlds/vaibhav)** (a bash per-project
+  tmux launcher for phones): closest cousin. `ctc`'s difference is that it wires
+  specifically into Claude Code's **Remote Control** (so sessions appear in the
+  Claude app, not just an attached terminal) and mirrors Claude Code's UI
+  (Shift+Tab modes, the flag-accurate options screen).
+- **vs. web/Electron UIs** (CloudCLI/claudecodeui, Codeman): those give a
+  browser file tree + shell with no SSH client. `ctc` is the opposite bet — no
+  server to run, no extra attack surface, just a script on your box you reach
+  over the SSH you already trust.
+
+**Honest caveat:** `ctc`'s core reason to exist is that Remote Control has no
+headless/daemon mode yet ([issue #30447](https://github.com/anthropics/claude-code/issues/30447)).
+If Anthropic ships `--headless`, the tmux-keepalive trick becomes unnecessary and
+`ctc` becomes mostly a UI convenience.
 
 ## Requirements
 
