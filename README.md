@@ -53,19 +53,30 @@ Blink/Termius on iOS), it's a two-tap workflow.
 
 ## Install
 
-```bash
-git clone https://github.com/badbread/ctc
-cd ctc
-./install.sh          # installs bin/ctc to ~/.local/bin and writes a default config
-```
-
-Or drop `bin/ctc` anywhere on your `PATH` manually. Then set where your projects
-live (defaults to `~/projects`):
+`ctc` is a single bash script with no dependencies of its own. **On your Linux
+box** (the one running Claude Code), one command:
 
 ```bash
-mkdir -p ~/.config/ctc
-echo 'BASE=~/code' > ~/.config/ctc/config     # point at your projects dir
+curl -fsSL https://raw.githubusercontent.com/badbread/ctc/main/bin/ctc \
+  -o ~/.local/bin/ctc && chmod +x ~/.local/bin/ctc
 ```
+
+(Make sure `~/.local/bin` is on your `PATH`.) That's it — run `ctc`.
+
+**First run** asks where your projects live (or auto-detects `~/projects`,
+`~/code`, `~/src`, …) and remembers it. No manual config editing required.
+
+<details><summary>Prefer git clone / an installer?</summary>
+
+```bash
+git clone https://github.com/badbread/ctc && cd ctc && ./install.sh
+```
+`install.sh` copies `bin/ctc` to `~/.local/bin`, writes a starter config, and
+checks for `claude`/`tmux`. Easy to update later with `git pull`.
+</details>
+
+Config lives at `~/.config/ctc/config` (see [`ctc.config.example`](ctc.config.example));
+everything is also changeable live in the `[o] options` screen.
 
 ## Use it
 

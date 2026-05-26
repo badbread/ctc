@@ -17,8 +17,10 @@ CTC_CONFIG_DIR="${CTC_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/ctc}"
 CTC_STATE_DIR="${CTC_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/ctc}"
 mkdir -p "$CTC_CONFIG_DIR" "$CTC_STATE_DIR" 2>/dev/null || true
 
-# Defaults (overridable by the config file, then by env vars).
-BASE="${CTC_BASE:-$HOME/projects}"       # where your project dirs live
+# Defaults (overridable by the config file, then by env vars). BASE starts empty
+# so we can tell "never configured" apart from a real choice and run first-run
+# detection / prompt. resolve_base() fills it in after load_cfg.
+BASE=""                                  # where project dirs live (resolved below)
 CLAUDE_BIN="$(command -v claude || echo claude)"
 TMUX_BIN="$(command -v tmux || echo tmux)"
 
@@ -63,12 +65,40 @@ load_cfg() {
   return 0   # don't let a false test above leak non-zero into set -e
 }
 
-# Persist options. Preserves BASE (not editable from the UI).
+# Persist options. Preserves BASE (set on first run / via config).
 save_cfg() {
   local tmp; tmp="$(mktemp)"
   printf 'BASE=%s\nMODE=%s\nMODEL=%s\nRC=%s\nCONTINUE=%s\nLAUNCH=%s\n' \
     "$BASE" "$MODE" "$MODEL" "$RC" "$CONTINUE" "$LAUNCH" > "$tmp"
   mv "$tmp" "$CFGFILE"
+}
+
+# Decide where projects live. Order: configured BASE (if it exists) → autodetect
+# a common dir → first-run prompt → fall back to $HOME. Saves the choice.
+resolve_base() {
+  # 1) already configured and real
+  if [ -n "$BASE" ] && [ -d "$BASE" ]; then return 0; fi
+  # 2) autodetect common project roots
+  local d
+  for d in "$HOME/projects" "$HOME/code" "$HOME/src" "$HOME/dev" "$HOME/git" "$HOME/repos" "$HOME/workspace"; do
+    if [ -d "$d" ]; then BASE="$d"; save_cfg; return 0; fi
+  done
+  # 3) first-run prompt (only if interactive). Otherwise fall back to $HOME.
+  if have_tty; then
+    banner 2>/dev/null || true
+    printf '\n %sFirst run — where do your projects live?%s\n' "$BOLD" "$RST"
+    printf ' %s(directory that contains your project folders / git repos)%s\n\n' "$DIM" "$RST"
+    local default="$HOME/projects" ans
+    printf ' %spath%s [%s%s%s]: ' "$ORG" "$RST" "$C2" "$default" "$RST"
+    read -r ans
+    ans="${ans:-$default}"; ans="${ans/#\~/$HOME}"
+    [ -d "$ans" ] || mkdir -p "$ans" 2>/dev/null || true
+    BASE="$ans"; save_cfg
+    printf ' %ssaved%s %s → %s%s\n' "$GRN" "$RST" "$CFGFILE" "$C2" "$BASE"; sleep 1
+  else
+    BASE="$HOME"
+  fi
+  return 0
 }
 
 # Build the claude argument array from current options into global CLAUDE_ARGS.
@@ -641,9 +671,12 @@ kill_screen() {
 }
 
 main() {
-  [ -x "$CLAUDE_BIN" ] || die "claude not found"
-  [ -x "$TMUX_BIN" ]  || die "tmux not found"
+  command -v "$CLAUDE_BIN" >/dev/null 2>&1 || command -v claude >/dev/null 2>&1 \
+    || die "claude not found on PATH. Install Claude Code: https://code.claude.com"
+  command -v "$TMUX_BIN" >/dev/null 2>&1 || command -v tmux >/dev/null 2>&1 \
+    || die "tmux not found on PATH. Install it (e.g. apt install tmux / brew install tmux)."
   load_cfg
+  resolve_base
   if [ "$#" -eq 0 ]; then
     menu
   else
