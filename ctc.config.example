@@ -5,15 +5,23 @@
 # ~ is expanded. Default: ~/projects
 BASE=~/projects
 
-# Default launch behavior (also changeable live via the [o] options screen):
+# Default launch behavior (also changeable live via the [o] options screen).
+# These mirror the real `claude` flags so you launch like the Claude app does.
 
 # detached = launch claude --remote-control in a detached tmux backend you
 #            connect to from the Claude app (recommended for phone use).
 # attach   = open the session in your terminal over SSH instead.
 LAUNCH=detached
 
-# claude --permission-mode: auto | acceptEdits | bypassPermissions | default | plan
+# claude --permission-mode: auto | acceptEdits | bypassPermissions | default | dontAsk | plan
+# (Shift+Tab on the main menu cycles this live, like Claude Code.)
 MODE=auto
 
-# Remote Control: on = pass --remote-control (so the Claude app can see it). on|off
+# claude --model: default(=none) | opus | sonnet | haiku
+MODEL=default
+
+# Remote Control: on = pass --remote-control (so the Claude app sees it). on|off
 RC=on
+
+# Resume the directory's last conversation instead of a fresh one. on|off (--continue)
+CONTINUE=off

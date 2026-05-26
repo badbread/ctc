@@ -26,52 +26,61 @@ HISTFILE="$CTC_STATE_DIR/history"        # most-recent-first list of launched di
 CFGFILE="$CTC_CONFIG_DIR/config"         # persisted launch options + BASE
 
 # ---------------------------------------------------------------------------
-# Launch options (persisted in $CFGFILE). Defaults: auto mode + Remote Control,
-# launched DETACHED (backend instance you connect to from the Claude app via RC).
-#   MODE   = one of: auto acceptEdits bypassPermissions default plan
-#   RC     = on | off       (--remote-control)
-#   LAUNCH = detached | attach
+# Launch options (persisted in $CFGFILE). These mirror the real `claude` flags
+# so you launch sessions the same way the Claude app would.
+#   MODE     = claude --permission-mode: auto acceptEdits bypassPermissions
+#              default dontAsk plan
+#   MODEL    = claude --model: default(none) opus sonnet haiku
+#   RC       = on | off                 (--remote-control)
+#   CONTINUE = on | off                 (--continue: resume the dir's last convo)
+#   LAUNCH   = detached | attach        (ctc: backend-for-app vs open-in-terminal)
 # ---------------------------------------------------------------------------
 MODE="auto"
+MODEL="default"
 RC="on"
+CONTINUE="off"
 LAUNCH="detached"
-VALID_MODES="auto acceptEdits bypassPermissions default plan"
+VALID_MODES="auto acceptEdits bypassPermissions default dontAsk plan"
+VALID_MODELS="default opus sonnet haiku"
 
 load_cfg() {
   # Read only the keys we own; ignore anything else for safety.
   if [ -f "$CFGFILE" ]; then
     local k v
     while IFS='=' read -r k v; do
-      # strip surrounding quotes/whitespace from value
-      v="${v#\"}"; v="${v%\"}"
+      v="${v#\"}"; v="${v%\"}"        # strip surrounding quotes
       case "$k" in
-        BASE)   [ -n "$v" ] && BASE="${v/#\~/$HOME}" ;;
-        MODE)   case " $VALID_MODES " in *" $v "*) MODE="$v";; esac ;;
-        RC)     case "$v" in on|off) RC="$v";; esac ;;
-        LAUNCH) case "$v" in detached|attach) LAUNCH="$v";; esac ;;
+        BASE)     [ -n "$v" ] && BASE="${v/#\~/$HOME}" ;;
+        MODE)     case " $VALID_MODES "  in *" $v "*) MODE="$v";;  esac ;;
+        MODEL)    case " $VALID_MODELS " in *" $v "*) MODEL="$v";; esac ;;
+        RC)       case "$v" in on|off) RC="$v";; esac ;;
+        CONTINUE) case "$v" in on|off) CONTINUE="$v";; esac ;;
+        LAUNCH)   case "$v" in detached|attach) LAUNCH="$v";; esac ;;
       esac
     done < "$CFGFILE"
   fi
-  # Env vars win over the file.
-  [ -n "${CTC_BASE:-}" ] && BASE="${CTC_BASE/#\~/$HOME}"
+  [ -n "${CTC_BASE:-}" ] && BASE="${CTC_BASE/#\~/$HOME}"   # env wins
 }
 
-# Persist options. Preserves BASE (we don't rewrite it from the UI).
+# Persist options. Preserves BASE (not editable from the UI).
 save_cfg() {
   local tmp; tmp="$(mktemp)"
-  printf 'BASE=%s\nMODE=%s\nRC=%s\nLAUNCH=%s\n' "$BASE" "$MODE" "$RC" "$LAUNCH" > "$tmp"
+  printf 'BASE=%s\nMODE=%s\nMODEL=%s\nRC=%s\nCONTINUE=%s\nLAUNCH=%s\n' \
+    "$BASE" "$MODE" "$MODEL" "$RC" "$CONTINUE" "$LAUNCH" > "$tmp"
   mv "$tmp" "$CFGFILE"
 }
 
-# Build the claude argument array from current MODE/RC into global CLAUDE_ARGS.
+# Build the claude argument array from current options into global CLAUDE_ARGS.
 build_claude_args() {
   CLAUDE_ARGS=()
   case "$MODE" in
     default) ;;  # no flag — claude's own default
     *) CLAUDE_ARGS+=(--permission-mode "$MODE") ;;
   esac
-  [ "$RC" = "on" ] && CLAUDE_ARGS+=(--remote-control)
-  return 0   # never let the && above leak a non-zero exit into set -e
+  [ "$MODEL" != "default" ] && CLAUDE_ARGS+=(--model "$MODEL")
+  [ "$CONTINUE" = "on" ]    && CLAUDE_ARGS+=(--continue)
+  [ "$RC" = "on" ]          && CLAUDE_ARGS+=(--remote-control)
+  return 0   # never let a trailing && leak non-zero into set -e
 }
 
 # ---------------------------------------------------------------------------
@@ -129,12 +138,14 @@ read_key() {
   case "$k" in
     '')            printf 'enter'; return ;;          # bare CR/LF
     ' ')           printf 'space'; return ;;
+    $'\t')         printf 'tab'; return ;;            # plain Tab (phone-friendly Shift+Tab alt)
     $'\033')                                           # ESC — maybe a sequence
       # try to grab the rest of a CSI seq without blocking long
       IFS= read -rsn2 -t 0.01 rest 2>/dev/null || rest=""
       case "$rest" in
         '[A') printf 'up' ;;   '[B') printf 'down' ;;
         '[C') printf 'right';; '[D') printf 'left' ;;
+        '[Z') printf 'shifttab' ;;                      # Shift+Tab (CSI Z)
         '')   printf 'esc'  ;;                          # lone ESC
         *)    printf 'esc'  ;;
       esac
@@ -183,7 +194,11 @@ pick_one() {
       i=$((i+1))
     done
     declare -F render_extra >/dev/null 2>&1 && render_extra
-    printf '%s   ↑↓/jk · enter · q%s\n' "$DIM" "$RST"
+    if [ -n "${PICK_SHIFTTAB:-}" ]; then
+      printf '%s   ↑↓ move · ⏎ select · ⇧⇥ cycle mode · q quit%s\n' "$DIM" "$RST"
+    else
+      printf '%s   ↑↓ move · ⏎ select · q back%s\n' "$DIM" "$RST"
+    fi
     local key; key="$(read_key)"
     # hotkey match first (screen-registered letters win over nav)
     if [ -n "$keys" ]; then
@@ -196,6 +211,10 @@ pick_one() {
     case "$key" in
       up|k)    cur=$(( (cur-1+n) % n )); [ "$cur" = "$skip" ] && cur=$(( (cur-1+n) % n )) ;;
       down|j)  cur=$(( (cur+1) % n )); [ "$cur" = "$skip" ] && cur=$(( (cur+1) % n )) ;;
+      shifttab|tab)
+        # Claude-style: Shift+Tab cycles permission mode. Opt-in per screen via
+        # PICK_SHIFTTAB=<fn>; the fn mutates state, we redraw in place.
+        [ -n "${PICK_SHIFTTAB:-}" ] && "$PICK_SHIFTTAB" ;;
       enter)   [ "$cur" = "$skip" ] || { PICK_INDEX=$cur; return 0; } ;;
       q|esc|eof) return 1 ;;
     esac
@@ -241,14 +260,49 @@ pick_many() {
   done
 }
 
-# Compact 3-line banner — fits a phone viewport with the keyboard up.
-# (UI/feel overhaul — rounded panels + Claude-style status line — is the next pass.)
+# Rounded-box helpers (Claude-Code-style framing). Width-aware, color $2.
+box_w() { local w; w="$(term_cols)"; printf '%s' $((w-2)); }
+box_top()    { local w; w="$(box_w)"; printf '%s╭' "${1:-$C3}"; printf '─%.0s' $(seq 1 "$w"); printf '╮%s\n' "$RST"; }
+box_bottom() { local w; w="$(box_w)"; printf '%s╰' "${1:-$C3}"; printf '─%.0s' $(seq 1 "$w"); printf '╯%s\n' "$RST"; }
+# box_line "<colored text>" <plain-text-len> [bordercolor] — pads to box width.
+box_line() {
+  local text="$1" len="$2" col="${3:-$C3}" w; w="$(box_w)"
+  local pad=$(( w - 1 - len )); [ "$pad" -lt 0 ] && pad=0
+  printf '%s│%s %s' "$col" "$RST" "$text"
+  printf ' %.0s' $(seq 1 "$pad") 2>/dev/null
+  printf '%s│%s\n' "$col" "$RST"
+}
+
+# The Claude-Code-style header: rounded box, wordmark + live status line.
 banner() {
   clear 2>/dev/null || true
-  printf '%s ┌─┐┌┬┐┌─┐%s  %s%sclaude terminal connect%s\n' "$C1" "$RST" "$BOLD" "$MAG" "$RST"
-  printf '%s │   │ │  %s  %sdetached RC backends · %s%s%s\n' "$C2" "$RST" "$GRY" "$C2" "$(hostname)" "$RST"
-  printf '%s └─┘ ┴ └─┘%s\n' "$C3" "$RST"
-  rule '─' "$C3"
+  local host; host="$(hostname)"
+  # Build plain + colored versions token-for-token so visible widths match
+  # exactly (padding is computed from the plain version's length).
+  local l1_plain="ctc · claude terminal connect"
+  local l1="${BOLD}${MAG}ctc${RST}${DIM} · claude terminal connect${RST}"
+  # status: full = host · model · mode · rc · launch; compact drops host & rc-off
+  # when the full line would overflow the (narrow phone) box interior.
+  local rcw; [ "$RC" = on ] && rcw="rc:on" || rcw="rc:off"
+  local full_plain compact_plain
+  full_plain="$(printf '%s · %s · %s · %s · %s' "$host" "$MODEL" "$MODE" "$rcw" "$LAUNCH")"
+  compact_plain="$(printf '%s · %s · %s · %s' "$MODEL" "$MODE" "$rcw" "$LAUNCH")"
+  local modeltag mtag ltag rtag
+  modeltag="$(model_label)"; mtag="$(mode_label)"; ltag="$(launch_short)"
+  [ "$RC" = on ] && rtag="${GRN}rc:on${RST}" || rtag="${GRY}rc:off${RST}"
+  local interior; interior="$(box_w)"
+  local l2 l2_plain
+  if [ "${#full_plain}" -le "$((interior-1))" ]; then
+    l2_plain="$full_plain"
+    l2="$(printf '%s%s%s · %s · %s · %s · %s' "$C2" "$host" "$RST" "$modeltag" "$mtag" "$rtag" "$ltag")"
+  else
+    l2_plain="$compact_plain"
+    l2="$(printf '%s · %s · %s · %s' "$modeltag" "$mtag" "$rtag" "$ltag")"
+  fi
+  box_top "$C3"
+  box_line "$l1" "${#l1_plain}" "$C3"
+  box_line "$l2" "${#l2_plain}" "$C3"
+  box_bottom "$C3"
 }
 
 # tmux session name for a given dir: claude-<basename>, sanitized for tmux.
@@ -345,6 +399,7 @@ mode_label() {
     auto)              printf '%sauto%s'        "$GRN" "$RST" ;;
     acceptEdits)       printf '%sacceptEdits%s' "$C2"  "$RST" ;;
     bypassPermissions) printf '%sBYPASS!%s'     "$RED" "$RST" ;;
+    dontAsk)           printf '%sdontAsk%s'     "$ORG" "$RST" ;;
     plan)              printf '%splan%s'        "$YEL" "$RST" ;;
     default)           printf '%sdefault%s'     "$GRY" "$RST" ;;
   esac
@@ -352,6 +407,29 @@ mode_label() {
 rc_label() {
   if [ "$RC" = "on" ]; then printf '%sRC●%s' "$GRN" "$RST"
   else printf '%sRC○%s' "$GRY" "$RST"; fi
+}
+model_label() {
+  case "$MODEL" in
+    default) printf '%sdefault%s' "$GRY" "$RST" ;;
+    *)       printf '%s%s%s' "$C2" "$MODEL" "$RST" ;;
+  esac
+}
+launch_short() {
+  if [ "$LAUNCH" = "detached" ]; then printf '%sdetached%s' "$C2" "$RST"
+  else printf '%sattach%s' "$GRN" "$RST"; fi
+}
+continue_label() {
+  if [ "$CONTINUE" = "on" ]; then printf '%scontinue●%s' "$GRN" "$RST"
+  else printf '%scontinue○%s' "$GRY" "$RST"; fi
+}
+# Shift+Tab handler: cycle permission mode in VALID_MODES order, persist, redraw.
+cycle_mode() {
+  case "$MODE" in
+    auto) MODE=acceptEdits ;; acceptEdits) MODE=bypassPermissions ;;
+    bypassPermissions) MODE=default ;; default) MODE=dontAsk ;;
+    dontAsk) MODE=plan ;; *) MODE=auto ;;
+  esac
+  save_cfg
 }
 
 # Footer used by options_screen's pick_one: shows the resulting launch line.
@@ -363,26 +441,32 @@ render_options_footer() {
   return 0
 }
 
-# Sub-picker: choose the permission mode from the full list.
+# Sub-picker: choose the permission mode (maps to claude --permission-mode).
 choose_mode() {
-  local -a labels descs=(
-    "autonomous, auto-approves safe actions"
-    "auto-accept file edits, ask before commands"
-    "approve EVERYTHING incl. destructive ops"
-    "no permission flag (claude's default)"
-    "plan first, don't act"
+  local -a labels=(
+    "auto                ${DIM}autonomous, auto-approves safe actions${RST}"
+    "acceptEdits         ${DIM}auto-accept file edits, ask before commands${RST}"
+    "bypassPermissions   ${RED}approve EVERYTHING incl. destructive ops${RST}"
+    "default             ${DIM}claude's own default behavior${RST}"
+    "dontAsk             ${DIM}don't prompt for permissions${RST}"
+    "plan                ${DIM}plan first, don't act${RST}"
   )
-  # rows in VALID_MODES order: auto acceptEdits bypassPermissions default plan
-  labels=(
-    "auto                $(printf '%s' "$DIM")${descs[0]}$RST"
-    "acceptEdits         $DIM${descs[1]}$RST"
-    "bypassPermissions   $RED${descs[2]}$RST"
-    "default             $DIM${descs[3]}$RST"
-    "plan                $DIM${descs[4]}$RST"
-  )
-  local -a vals=(auto acceptEdits bypassPermissions default plan)
-  pick_one "${BOLD}${C3} PERMISSION MODE ${RST}  (currently: $(mode_label))" "${labels[@]}" || return 0
+  local -a vals=(auto acceptEdits bypassPermissions default dontAsk plan)
+  pick_one "${BOLD}${C3} PERMISSION MODE ${RST} ${GRY}(claude --permission-mode)${RST}" "${labels[@]}" || return 0
   MODE="${vals[$PICK_INDEX]}"; save_cfg
+}
+
+# Sub-picker: choose the model (maps to claude --model).
+choose_model() {
+  local -a labels=(
+    "default   ${DIM}whatever your claude config uses${RST}"
+    "opus      ${DIM}most capable${RST}"
+    "sonnet    ${DIM}balanced${RST}"
+    "haiku     ${DIM}fastest / cheapest${RST}"
+  )
+  local -a vals=(default opus sonnet haiku)
+  pick_one "${BOLD}${C3} MODEL ${RST} ${GRY}(claude --model)${RST}" "${labels[@]}" || return 0
+  MODEL="${vals[$PICK_INDEX]}"; save_cfg
 }
 
 launch_label() {
@@ -390,25 +474,29 @@ launch_label() {
   else printf '%sattach%s %s(open here over ssh)%s' "$GRN" "$RST" "$DIM" "$RST"; fi
 }
 
-# Settings screen, Claude-style arrow menu.
+# Settings screen, Claude-style arrow menu. Mirrors the real claude launch flags.
 options_screen() {
   while :; do
     local -a rows=(
-      "launch mode       $(printf '→') $(launch_label)"
-      "permission mode   $(printf '→') $(mode_label)"
-      "remote control    $(printf '→') $(rc_label)"
+      "launch mode       → $(launch_label)"
+      "permission mode   → $(mode_label)   ${DIM}--permission-mode${RST}"
+      "model             → $(model_label)   ${DIM}--model${RST}"
+      "remote control    → $(rc_label)   ${DIM}--remote-control${RST}"
+      "continue last     → $(continue_label)   ${DIM}--continue${RST}"
       "${GRY}back to menu${RST}"
     )
     render_extra() { render_options_footer; }
-    pick_one "${BOLD}${C3} OPTIONS ${RST}  ${GRY}apply to NEW sessions${RST}" "${rows[@]}"
+    pick_one "${BOLD}${C3} OPTIONS ${RST} ${GRY}apply to NEW sessions${RST}" "${rows[@]}"
     local rc=$?
     unset -f render_extra
     [ "$rc" -ne 0 ] && return 0           # cancelled -> back
     case "$PICK_INDEX" in
       0) [ "$LAUNCH" = "detached" ] && LAUNCH=attach || LAUNCH=detached; save_cfg ;;
       1) choose_mode ;;
-      2) [ "$RC" = "on" ] && RC=off || RC=on; save_cfg ;;
-      3) return 0 ;;
+      2) choose_model ;;
+      3) [ "$RC" = "on" ] && RC=off || RC=on; save_cfg ;;
+      4) [ "$CONTINUE" = "on" ] && CONTINUE=off || CONTINUE=on; save_cfg ;;
+      5) return 0 ;;
     esac
   done
 }
@@ -488,7 +576,7 @@ menu() {
   done
   rows+=("${C3}┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄${RST}")
   rows+=("$(printf '%s[n]%s launch new session…' "$C1" "$RST")")
-  rows+=("$(printf '%s[o]%s options   %s%s %s %s%s' "$ORG" "$RST" "$DIM" "$(mode_label)" "$(rc_label)" "$LAUNCH" "$RST")")
+  rows+=("$(printf '%s[o]%s options' "$ORG" "$RST")")
   local IDX_DIV=$nlive IDX_NEW=$((nlive+1)) IDX_OPT=$((nlive+2))
   local IDX_KILL=-1 IDX_QUIT
   if [ "$nlive" -gt 1 ]; then
@@ -507,7 +595,7 @@ menu() {
   fi
   local hk="n:$IDX_NEW o:$IDX_OPT"
   [ "$IDX_KILL" -ge 0 ] && hk="$hk k:$IDX_KILL"
-  PICK_SKIP=$IDX_DIV PICK_KEYS="$hk" pick_one "$title" "${rows[@]}"
+  PICK_SKIP=$IDX_DIV PICK_KEYS="$hk" PICK_SHIFTTAB=cycle_mode pick_one "$title" "${rows[@]}"
   [ "$?" -ne 0 ] && { printf '%s  later.%s\n' "$GRY" "$RST"; exit 0; }
 
   case "$PICK_INDEX" in
