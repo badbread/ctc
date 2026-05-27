@@ -1,27 +1,26 @@
-# ctc — Claude Terminal Connect
+# ctc: Claude Terminal Connect
 
-**Drive your own local Claude Code from the native Claude app.** `ctc` launches
-the `claude` already installed on your always-on Linux box as a detached,
-Remote-Control-enabled backend — so the session shows up in the official **Claude
-mobile/web app** and you steer your real machine, your real repos, your real
-tools, from the app you already use. No web UI to host, no browser file tree, no
-third-party bot hop.
+Your phone SSHes into your box and fires `ctc` to launch a `claude` backend. From
+that point it's loose: the session lives in the Claude app, so you keep coding on
+the phone, pick it up in a browser, or switch to the desktop app, whichever's in
+front of you. The phone's the gateway, not a leash. The real `claude` on your
+real machine, your repos, your tools, showing up in the app you already use. Not
+a web clone, not a chat-bot bridge.
 
-Start it from your phone in two keystrokes (SSH in over Tailscale/WireGuard, pick
-a project from a menu), then walk away — lock the phone or lose signal and the
-session keeps running. It's a single bash script: no server, no Electron, just
-the SSH you already trust. Claude-Code-native by design (Shift+Tab permission
-modes, flag-accurate options) and safe by default (`acceptEdits`, never silent
-full-auto).
+`ctc` launches `claude --remote-control` in a detached tmux session, one per
+project, and hands you an arrow-key TUI to manage them. Detached, so it outlives
+the shell that started it; the session shows up in the app and keeps running
+after you disconnect. One bash file, no daemon to host, no extra attack surface.
+Just the SSH you already trust.
 
 ### Demo
 
 [![asciicast](https://asciinema.org/a/REPLACE_WITH_ID.svg)](https://asciinema.org/a/REPLACE_WITH_ID)
 
-> Launch a backend → trust it once → it's live in the **Claude app** → manage
-> running instances, attach/detach over SSH, flip launch + permission modes.
-> *(The recording above is [`docs/media/demo.cast`](docs/media/demo.cast) —
-> upload it to asciinema or render it to a gif; see [docs/media/README.md](docs/media/README.md).)*
+Launch a backend, trust it once, watch it land in the app (phone shown here, but
+it's the same session you'd pick up in the browser or desktop app), then manage
+the live ones: attach, detach, flip launch/permission modes. Cast at
+[`docs/media/demo.cast`](docs/media/demo.cast).
 
 ```
 ╭────────────────────────────────────────────────────────╮
@@ -40,233 +39,164 @@ full-auto).
    ↑↓ move · ⏎ select · ⇧⇥ cycle mode · q quit
 ```
 
-## Why I built this
+## Why
 
-I run Claude Code on a box at home and wanted to use it from my phone. My routine
-was: open a terminal app, `ssh` into the box, `cd` to whatever project I wanted,
-type `claude`, and start working. Every single time:
+Driving my box's `claude` from the app meant four steps, every time:
 
 ```bash
 ssh mybox
-cd ~/projects/the-thing-i-want
+cd ~/projects/whatever
 claude
+/remote-control      # inside claude, to push it to the app
 ```
 
-Three steps, every time, thumb-typing a path on a phone keyboard. Worse, that
-session lived in my SSH connection — lock the phone or switch apps and the
-connection dropped, taking `claude` with it. And it had nothing to do with
-Claude Code's nice mobile app; I was staring at a raw terminal.
+Plus the session died with the shell that launched it. Drop the SSH connection,
+lose `claude`. `ctc` collapses the launch to picking a project from a menu, and
+because the backend's detached, the SSH session was only ever the ignition. Close
+it and keep working from the app, on whatever device you're holding.
 
-`ctc` is that routine collapsed into one command and made drop-proof: pick a
-project from a menu, it launches a Remote-Control-enabled `claude` in a detached
-tmux session that survives disconnects, and then I drive it from the **Claude
-app** — the terminal's just the launcher.
+## How (and the clock on it)
 
-## Why it works this way
+[Remote Control](https://code.claude.com/docs/en/remote-control) drives a running
+`claude` from the app, but the process has to stay alive and there's no headless
+mode. So: `claude --remote-control` in a detached tmux session, tmux as the
+keepalive Claude Code doesn't ship.
 
-[Claude Code's Remote Control](https://code.claude.com/docs/en/remote-control)
-lets you drive a running `claude` session from the Claude app — but the `claude`
-**process has to stay alive**, and there's no built-in headless/daemon mode. The
-usual answer is "wrap it in tmux and SSH in," which works but is fiddly,
-especially from a phone.
+That "doesn't ship" is the whole risk. `ctc` exists because of an open gap
+([#30447](https://github.com/anthropics/claude-code/issues/30447)). The day
+`--headless` lands, the tmux trick is dead weight and `ctc` is just a launcher
+UI. Built on that clock on purpose.
 
-`ctc` makes that ergonomic: it launches `claude --remote-control` in a **detached
-tmux session** (the process stays alive, no terminal attached), one per project,
-and gives you a small arrow-key TUI to launch / list / kill those backends. You
-connect to them from the Claude app. From a phone over SSH (Termux on Android,
-Blink/Termius on iOS), it's a two-tap workflow.
+## vs. the alternatives
 
-## How this compares
+- **`claude remote-control` server mode** (`--spawn worktree`, `--capacity`):
+  one process, many sessions, QR to connect. Great when you're *at* the box.
+  `ctc` is for when you're not: per-project backends spun up and managed over
+  SSH. They compose; point `ctc` at server mode if you want one process.
+- **[vaibhav](https://github.com/manojlds/vaibhav)** (bash per-project tmux for
+  phones): closest cousin. `ctc` wires into Remote Control specifically (sessions
+  hit the app, not just an attached pane) and apes Claude Code's UI (Shift+Tab
+  modes, flag-accurate options).
+- **[Claude Code Channels](https://www.macstories.net/stories/first-look-hands-on-with-claude-codes-new-telegram-and-discord-integrations/)**
+  (official TG/Discord/iMessage, preview since 2026-03): messaging ergonomic, and
+  it has the *same* keepalive problem. Anthropic's docs literally say "combining
+  with tmux, screen, or a background process is the current workaround." `ctc`
+  hosts exactly that session. They stack.
+- **web/Electron UIs** (claudecodeui, Codeman, …): browser file tree + shell,
+  plus a service to run and expose. Opposite bet. Nothing to host.
 
-This space is crowded; here's the honest positioning.
+## Setup
 
-- **vs. `claude remote-control` server mode** (the official persistent server,
-  `--spawn worktree`, `--capacity`): server mode is great when you're *at* the
-  machine — it serves many sessions from one running process and you scan a QR
-  to connect. `ctc` is aimed at the *phone-first* case: spawn a fresh
-  per-project backend **from your phone over SSH** and manage its lifecycle
-  (launch/list/attach/kill) from a terminal menu, without being at the box. The
-  two compose fine — you can point `ctc`'s launch at server mode if you prefer
-  one process.
-- **vs. [vaibhav](https://github.com/manojlds/vaibhav)** (a bash per-project
-  tmux launcher for phones): closest cousin. `ctc`'s difference is that it wires
-  specifically into Claude Code's **Remote Control** (so sessions appear in the
-  Claude app, not just an attached terminal) and mirrors Claude Code's UI
-  (Shift+Tab modes, the flag-accurate options screen).
-- **vs. [Claude Code Channels](https://www.macstories.net/stories/first-look-hands-on-with-claude-codes-new-telegram-and-discord-integrations/)**
-  (official Telegram/Discord/iMessage integration, research preview since
-  2026-03): Channels lets you *message* Claude Code from a chat app, which is a
-  different ergonomic than ctc's launcher menu — and notably it has **the same
-  keepalive problem**: Anthropic's own docs say it has no persistent background
-  mode and that "combining with tmux, screen, or a background process is the
-  current workaround." So Channels doesn't replace the detached-session trick;
-  ctc is a way to *host* exactly the kind of always-on session Channels expects,
-  with per-project lifecycle management on top. They compose.
-- **vs. web/Electron UIs** (CloudCLI/claudecodeui, Codeman): those give a
-  browser file tree + shell with no SSH client. `ctc` is the opposite bet — no
-  server to run, no extra attack surface, just a script on your box you reach
-  over the SSH you already trust.
+Needs: an always-on Linux box (server, VPS, Pi, WSL, whatever) with `claude`
+**logged in**, `tmux`, and `bash` 4+. A way to securely SSH into it from wherever
+you are; `ctc` doesn't care how you get there.
 
-**Honest caveat:** `ctc`'s core reason to exist is that Remote Control has no
-headless/daemon mode yet ([issue #30447](https://github.com/anthropics/claude-code/issues/30447)).
-If Anthropic ships `--headless`, the tmux-keepalive trick becomes unnecessary and
-`ctc` becomes mostly a UI convenience.
+`ctc` doesn't touch auth, it just `exec`s `claude` with whatever login's already
+on the box.
 
-## Requirements
-
-- A Linux box (server, VPS, homelab, Pi, WSL — anything always-on) with:
-  - [**Claude Code**](https://code.claude.com) installed **and logged in**
-  - **tmux**
-  - **bash** 4+
-- A way to reach that box from your phone over **SSH**. A mesh VPN like
-  [**Tailscale**](https://tailscale.com) or WireGuard is the easiest and safest;
-  LAN-only and port-forwarding also work. `ctc` is connectivity-agnostic — bring
-  your own SSH reachability.
-- A terminal/SSH app on the phone: **Termux** (Android), **Blink** or **Termius**
-  (iOS).
-
-> Note: `ctc` does not handle Claude authentication — it just launches `claude`,
-> which uses whatever login already exists on the box. Log in once with `claude`
-> on the server before using `ctc`.
-
-## Install
-
-`ctc` is a single bash script with no dependencies of its own. **On your Linux
-box** (the one running Claude Code), one command:
+Single file, zero deps:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/badbread/ctc/main/bin/ctc \
   -o ~/.local/bin/ctc && chmod +x ~/.local/bin/ctc
 ```
 
-(Make sure `~/.local/bin` is on your `PATH`.) That's it — run `ctc`.
+Run `ctc`. First run autodetects your project dir (`~/projects`, `~/code`,
+`~/src`, …) or asks once. Config at `~/.config/ctc/config`
+([example](ctc.config.example)), all of it live-editable in `[o] options`.
 
-**First run** asks where your projects live (or auto-detects `~/projects`,
-`~/code`, `~/src`, …) and remembers it. No manual config editing required.
-
-<details><summary>Prefer git clone / an installer?</summary>
+<details><summary>git clone / installer instead</summary>
 
 ```bash
 git clone https://github.com/badbread/ctc && cd ctc && ./install.sh
 ```
-`install.sh` copies `bin/ctc` to `~/.local/bin`, writes a starter config, and
-checks for `claude`/`tmux`. Easy to update later with `git pull`.
+
+Copies to `~/.local/bin`, writes a starter config, checks for `claude`/`tmux`.
+`git pull` to update.
 </details>
 
-Config lives at `~/.config/ctc/config` (see [`ctc.config.example`](ctc.config.example));
-everything is also changeable live in the `[o] options` screen.
-
-## Use it
-
-On the box:
-
 ```bash
-ctc                 # open the session manager
-ctc my-api          # fuzzy-jump: launch/connect the project matching "my-api"
-ctc ~/some/path     # launch in an explicit directory
+ctc                 # session manager
+ctc my-api          # fuzzy-jump to the project matching "my-api"
+ctc ~/some/path     # explicit dir
 ```
 
-## Manage your sessions
+## Managing sessions
 
-`ctc` isn't just a launcher — the menu *is* a process manager for your Claude
-Code backends, one tmux session per project.
+The menu is a process manager for your backends, one tmux session per project.
+This is the part I actually live in.
 
-- **Real liveness, not a guess.** Each running project shows `● live` or
-  `◌ idle · claude exited`. `ctc` checks the tmux pane's *actual command*
-  (`claude`/`node` = live) rather than a bare "does the session exist," so a
-  crashed backend reads as idle instead of falsely healthy.
-- **Attach / detach over SSH.** Select a live session → `[a] attach here` drops
-  you into the running `claude` in your terminal; **`Ctrl-b` then `d`** detaches
-  and you're back at the menu — *the session keeps running and stays connected
-  to the app*. Detaching is not quitting. `/exit` inside Claude is what actually
-  ends it.
-- **Kill what you don't need.** `[k]` on a session, or the multi-select kill
-  screen (`Space` to mark several, `Enter` to confirm) to reap a batch at once.
-- **Set the defaults once, in `[o] options`** — they persist to
-  `~/.config/ctc/config` and apply to every *new* session:
-  - **launch mode** — `detached` (a backend you drive from the Claude app, the
-    default) or `attach` (open the session in your terminal over SSH).
-  - **permission mode** — `acceptEdits` / `auto` / `bypassPermissions` /
-    `default` / `plan` (maps to `claude --permission-mode`). Or cycle it inline
-    with **Shift+Tab**, exactly like Claude Code.
-  - **model**, **`--remote-control`** toggle, **`--continue`** (resume the dir's
-    last conversation) — every option maps to a real `claude` flag.
+- **Real liveness.** `● live` vs `◌ idle · claude exited`, off the pane's actual
+  `pane_current_command` (`claude`/`node` = live), not a bare `has-session`. A
+  crashed backend reads idle, not falsely healthy.
+- **Attach / detach.** `[a]` drops into the running `claude`; **`Ctrl-b d`**
+  detaches back to the menu, session still live and still on the app. Detach ≠
+  quit. `/exit` ends it.
+- **Kill.** `[k]` on one, or the multi-select screen (`Space` mark, `Enter`
+  confirm) to reap a batch.
+- **Defaults in `[o]`**, persisted to config, applied to new sessions: launch
+  mode (`detached`/`attach`), permission mode (`acceptEdits`/`auto`/
+  `bypassPermissions`/`default`/`plan`, or Shift+Tab to cycle), model,
+  `--remote-control`, `--continue`. Every toggle maps to a real `claude` flag.
 
-The result: from a phone, two keystrokes to launch a project, and the same menu
-to attach, detach, switch defaults, or kill — without ever leaving SSH.
+## One-tap launch
 
-## Connect from your phone
-
-The idea on every client is the same: an SSH connection that forces a TTY and
-runs `ctc` on login. Set it up once and launching is a single tap.
-
-The host block is the same everywhere — `RemoteCommand` must be the full path if
-`ctc` isn't on the non-interactive SSH `PATH` (use `which ctc` on the box to
-check; `~/.local/bin` often isn't on it for non-login shells):
+`ctc` is a TUI, so any SSH client works as-is. To make launching a single tap,
+force a TTY and run it on login. `RemoteCommand` wants the full path if `ctc`
+isn't on the non-interactive `PATH` (`~/.local/bin` usually isn't, `which ctc`):
 
 ```
 Host ctc
-    HostName 100.x.y.z          # your box's address (Tailscale IP shown)
+    HostName your.box.address
     User you
-    RequestTTY force            # ctc is a TUI — it needs a terminal
-    RemoteCommand ctc           # or the full path, e.g. /home/you/.local/bin/ctc
+    RequestTTY force
+    RemoteCommand ctc           # full path if needed: /home/you/.local/bin/ctc
 ```
 
-### Termux (Android)
+Phone clients are where this shines, and they each have quirks:
 
-1. `pkg install openssh` if needed.
-2. Put the host block above in `~/.ssh/config`.
-3. `ssh ctc`.
+- **Termux** (Android): `pkg install openssh`, host block in `~/.ssh/config`,
+  `ssh ctc`. One word? `echo 'ctc(){ ssh ctc; }' >> ~/.bashrc && source ~/.bashrc`.
+  `command not found` = stale shell, re-`source` or reopen; if Termux ignores
+  `~/.bashrc`, use `~/.profile`. Arrows/Tab/Ctrl on the extra-keys row (Ctrl for
+  `Ctrl-b d`).
+- **Blink** (iOS): best iOS TUI client. Host + startup command `ctc`, or
+  `ssh ctc -t ctc`. Modifiers and Shift+Tab work.
+- **Termius**: host + startup snippet `ctc`. Key row has Ctrl/arrows/Tab.
 
-Optional one-word launch — add a function to `~/.bashrc`, then **reload it**:
+Keys: `↑↓`/`jk` move, `Enter` select, `q`/`Esc` back, bracketed letter
+(`n o k a b /`) jumps straight to the action.
 
-```bash
-echo 'ctc(){ ssh ctc; }' >> ~/.bashrc
-source ~/.bashrc            # the already-open shell won't see it until you do this
-```
+## Stuff that went wrong
 
-> Gotcha: if `ctc: command not found` right after adding the function, that's a
-> stale shell — `source ~/.bashrc` (or open a new Termux session). If `source`
-> still doesn't help, your Termux isn't reading `~/.bashrc`; put the function in
-> `~/.profile` instead and reopen Termux. For a banner/auto-launch on open, add
-> the line(s) to the bottom of `~/.bashrc`.
+**Trust dialog deadlock.** `claude`'s first-run "trust this folder?" prompt
+blocks a detached backend forever: tmux gives the pane a real pty, so `claude`
+thinks it has a terminal and prompts, but nobody's attached to answer, so the RC
+session never registers. Looks like the launch no-op'd. Fix: `ctc` checks
+`hasTrustDialogAccepted` in `~/.claude.json` and pre-writes it (after a one-time
+`[y/N]`) before launch. The non-TTY auto-skip `claude -p` gets doesn't fire here,
+because the pty *is* a real terminal as far as `claude` can tell.
 
-Arrow keys and Tab live on Termux's extra-keys row; `Ctrl` is a chip there too
-(used for `Ctrl-b d` to detach — see below).
+**`set -e` footgun, twice.** Under `set -euo pipefail`, a function whose last
+statement is a bare `[ … ]` returns that test's exit code; a false test in tail
+position kills the script. Bit me in two functions, both only on the unset-config
+path my tests masked. Every such function ends `return 0` now. Test the path
+where the env vars *aren't* set.
 
-### Blink Shell (iOS)
+## The AI-assisted part
 
-Blink has first-class SSH hosts and good modifier-key support (best iOS option
-for a TUI). Add a host in **Settings → Hosts** (HostName, User, key) and set its
-startup command to `ctc`, or just run `ssh ctc -t ctc` from the Blink prompt.
-`Ctrl` and arrows are on the keyboard; Shift+Tab works.
-
-### Termius (iOS/Android)
-
-Create a host (address, user, key). Under the host's **Startup snippet / command**,
-put `ctc`. Termius shows a key row with `Ctrl`, arrows and `Tab` for navigation
-and detaching.
-
-### Keys
-
-| Key | Action |
-|---|---|
-| `↑/↓` or `j/k` | move |
-| `Enter` | choose |
-| `q` / `Esc` | back / quit |
-| bracketed letter (`n`, `o`, `k`, `a`, `b`, `/`) | jump straight to that action |
-
-Select a **running** session to attach (`a`) or kill (`k`). When attached,
-**`Ctrl-b` then `d`** detaches and returns you to the menu — the session keeps
-running. `/exit` inside Claude ends it. (Defaults and per-flag options live in
-`[o]` — see [Manage your sessions](#manage-your-sessions) above.)
+Claude Code wrote most of the code; I'm an infra guy, not a bash lifer. The
+judgment is mine: tmux-as-keepalive, defaulting to `acceptEdits` not full auto
+(a phone-reachable agent shouldn't run commands unwatched), killing a `--sandbox`
+flag a draft hallucinated that doesn't exist on `claude` 2.1.150, keeping the
+800-line engine one portable file with no hardcoded paths. That part doesn't come
+from a model.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT, see [LICENSE](LICENSE).
 
----
+<hr />
 
-*`ctc` is an independent, unofficial tool. "Claude" and "Claude Code" are
-trademarks of Anthropic; this project is not affiliated with or endorsed by
-Anthropic. It simply launches the `claude` CLI you already have installed.*
+*Independent, unofficial. "Claude"/"Claude Code" are Anthropic trademarks; not
+affiliated or endorsed. It just launches the `claude` you already have.*
