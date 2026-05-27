@@ -73,10 +73,6 @@ UI. Built on that clock on purpose.
   one process, many sessions, QR to connect. Great when you're *at* the box.
   `ctc` is for when you're not: per-project backends spun up and managed over
   SSH. They compose; point `ctc` at server mode if you want one process.
-- **[vaibhav](https://github.com/manojlds/vaibhav)** (bash per-project tmux for
-  phones): closest cousin. `ctc` wires into Remote Control specifically (sessions
-  hit the app, not just an attached pane) and apes Claude Code's UI (Shift+Tab
-  modes, flag-accurate options).
 - **[Claude Code Channels](https://www.macstories.net/stories/first-look-hands-on-with-claude-codes-new-telegram-and-discord-integrations/)**
   (official TG/Discord/iMessage, preview since 2026-03): messaging ergonomic, and
   it has the *same* keepalive problem. Anthropic's docs literally say "combining
