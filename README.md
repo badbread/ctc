@@ -51,9 +51,14 @@ claude
 ```
 
 Plus the session died with the shell that launched it. Drop the SSH connection,
-lose `claude`. `ctc` collapses the launch to picking a project from a menu, and
-because the backend's detached, the SSH session was only ever the ignition. Close
-it and keep working from the app, on whatever device you're holding.
+lose `claude`. And typing into a raw SSH terminal on a phone is its own punishment:
+no autocomplete, no spellcheck, no dictation, just you and a keyboard the size of a
+stick of gum.
+
+`ctc` collapses the launch to picking a project from a menu, and because the
+backend's detached, the SSH session was only ever the ignition. Close it and drive
+`claude` from the app, where you get autocomplete, spellcheck, and dictation for
+free, on whatever device you're holding.
 
 ## How (and the clock on it)
 
