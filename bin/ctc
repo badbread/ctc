@@ -148,11 +148,13 @@ fi
 # moves the mouse. Disabling all the common mouse modes is safe even if they
 # weren't on — and going via /dev/tty means we don't pollute redirected stdout.
 reset_terminal() {
-  # Guard with -w because bash prints redirection-failure errors itself, BEFORE
-  # a command-level `2>/dev/null` takes effect — so `printf >/dev/tty 2>/dev/null`
-  # still leaks "/dev/tty: No such device or address" when there's no tty (piped
-  # stdin under docker exec -i, etc.). Test first instead.
-  [ -w /dev/tty ] && printf '\033[?1000l\033[?1002l\033[?1003l\033[?1006l' > /dev/tty
+  # bash prints redirection-failure errors itself, *before* a command-level
+  # `2>/dev/null` takes effect; and `[ -w /dev/tty ]` only checks the node's
+  # permission bits, not openability (under docker exec -i without -t the node
+  # exists but open() returns ENXIO). A brace group with its own stderr
+  # redirection catches bash's redirection error too — that's the form that
+  # actually stays quiet when there's no controlling terminal.
+  { printf '\033[?1000l\033[?1002l\033[?1003l\033[?1006l' > /dev/tty ; } 2>/dev/null
   return 0
 }
 trap reset_terminal EXIT
