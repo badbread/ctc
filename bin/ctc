@@ -142,6 +142,16 @@ else
   C1=""; C2=""; C3=""; MAG=""; GRN=""; YEL=""; ORG=""; GRY=""; RED=""
 fi
 
+# Defensive terminal reset. If anything we spawn (claude's TUI, an inner tmux,
+# a crashed attach) left mouse tracking enabled, the terminal floods stdin
+# with SGR mouse reports (`35;X;YM…`) and bells on each one whenever the user
+# moves the mouse. Disabling all the common mouse modes is safe even if they
+# weren't on — and going via /dev/tty means we don't pollute redirected stdout.
+reset_terminal() {
+  printf '\033[?1000l\033[?1002l\033[?1003l\033[?1006l' >/dev/tty 2>/dev/null || true
+}
+trap reset_terminal EXIT
+
 # Terminal width (fallback 80), capped so the banner stays sane on huge screens.
 term_cols() {
   local c="${COLUMNS:-0}"
@@ -457,6 +467,21 @@ launch() {
     else
       build_claude_args
       printf '\n %s＋ NEW%s  %s%s%s  %sclaude %s%s\n' "$C1" "$RST" "$BOLD" "$sess" "$RST" "$DIM" "${CLAUDE_ARGS[*]}" "$RST"
+    fi
+    if [ -n "${TMUX:-}" ]; then
+      # Already inside a tmux client. attach-session would either be refused
+      # as nested or stack a second client on top of the first, which on some
+      # terminals leaves mouse-tracking half-enabled and floods the screen
+      # with `35;X;YM` reports on cursor motion. switch-client is the proper
+      # nested idiom: retarget THIS client to the inner session.
+      printf ' %s%s↪ switching outer tmux to%s %s%s%s\n' \
+        "$YEL" "$BOLD" "$RST" "$BOLD" "$sess" "$RST"
+      printf ' %sCtrl-b L returns here · Ctrl-b s for session picker%s\n' "$GRY" "$RST"
+      sleep 1
+      "$TMUX_BIN" switch-client -t "$sess" || \
+        printf '\n %sswitch-client failed (different tmux server?). Detach (Ctrl-b d) and rerun ctc.%s\n' \
+          "$RED" "$RST"
+      return 0
     fi
     # 2s reminder: detach cleanly (keeps it running) vs /exit (ends it)
     printf ' %s%s⎚ Ctrl-b then d%s %sto detach (keeps it running) · %s/exit%s ends it%s\n' \
