@@ -9,18 +9,30 @@ Electron, no browser-exposed shell, just the SSH you already trust.
 Claude-Code-native by design (Shift+Tab permission modes, flag-accurate options)
 and safe by default (`acceptEdits`, never silent full-auto).
 
+### Demo
+
+[![asciicast](https://asciinema.org/a/REPLACE_WITH_ID.svg)](https://asciinema.org/a/REPLACE_WITH_ID)
+
+> Launch a backend → trust it once → it's live in the **Claude app** → manage
+> running instances, attach/detach over SSH, flip launch + permission modes.
+> *(The recording above is [`docs/media/demo.cast`](docs/media/demo.cast) —
+> upload it to asciinema or render it to a gif; see [docs/media/README.md](docs/media/README.md).)*
+
 ```
- ┌─┐┌┬┐┌─┐  claude terminal connect
- │   │ │    detached RC backends · my-server
- └─┘ ┴ └─┘
-────────────────────────────────────────
- 1 running · select to manage
- ▎ ● my-api            live · connect from app
+╭────────────────────────────────────────────────────────╮
+│ ctc · claude terminal connect                          │
+│ dev · opus · acceptEdits · rc:on · detached           │
+╰────────────────────────────────────────────────────────╯
+
+ 2 running · select to manage
+ ▎ ● my-api               live · connect from app
+   ● homelab-infra        live · connect from app
    ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
    [n] launch new session…
-   [o] options   auto RC● detached
+   [o] options
    [q] quit
-   ↑↓/jk · enter · q
+
+   ↑↓ move · ⏎ select · ⇧⇥ cycle mode · q quit
 ```
 
 ## Why I built this
@@ -149,6 +161,35 @@ ctc my-api          # fuzzy-jump: launch/connect the project matching "my-api"
 ctc ~/some/path     # launch in an explicit directory
 ```
 
+## Manage your sessions
+
+`ctc` isn't just a launcher — the menu *is* a process manager for your Claude
+Code backends, one tmux session per project.
+
+- **Real liveness, not a guess.** Each running project shows `● live` or
+  `◌ idle · claude exited`. `ctc` checks the tmux pane's *actual command*
+  (`claude`/`node` = live) rather than a bare "does the session exist," so a
+  crashed backend reads as idle instead of falsely healthy.
+- **Attach / detach over SSH.** Select a live session → `[a] attach here` drops
+  you into the running `claude` in your terminal; **`Ctrl-b` then `d`** detaches
+  and you're back at the menu — *the session keeps running and stays connected
+  to the app*. Detaching is not quitting. `/exit` inside Claude is what actually
+  ends it.
+- **Kill what you don't need.** `[k]` on a session, or the multi-select kill
+  screen (`Space` to mark several, `Enter` to confirm) to reap a batch at once.
+- **Set the defaults once, in `[o] options`** — they persist to
+  `~/.config/ctc/config` and apply to every *new* session:
+  - **launch mode** — `detached` (a backend you drive from the Claude app, the
+    default) or `attach` (open the session in your terminal over SSH).
+  - **permission mode** — `acceptEdits` / `auto` / `bypassPermissions` /
+    `default` / `plan` (maps to `claude --permission-mode`). Or cycle it inline
+    with **Shift+Tab**, exactly like Claude Code.
+  - **model**, **`--remote-control`** toggle, **`--continue`** (resume the dir's
+    last conversation) — every option maps to a real `claude` flag.
+
+The result: from a phone, two keystrokes to launch a project, and the same menu
+to attach, detach, switch defaults, or kill — without ever leaving SSH.
+
 ## Connect from your phone
 
 The idea on every client is the same: an SSH connection that forces a TTY and
@@ -212,17 +253,8 @@ and detaching.
 
 Select a **running** session to attach (`a`) or kill (`k`). When attached,
 **`Ctrl-b` then `d`** detaches and returns you to the menu — the session keeps
-running. `/exit` inside Claude ends it.
-
-## Options
-
-Press `o`. Persisted to `~/.config/ctc/config`:
-
-- **launch mode** — `detached` (backend you connect to from the app, default) or
-  `attach` (open the session in your terminal over SSH).
-- **permission mode** — `auto` / `acceptEdits` / `bypassPermissions` / `default` /
-  `plan` (maps to `claude --permission-mode`).
-- **remote control** — toggle `--remote-control`.
+running. `/exit` inside Claude ends it. (Defaults and per-flag options live in
+`[o]` — see [Manage your sessions](#manage-your-sessions) above.)
 
 ## License
 
