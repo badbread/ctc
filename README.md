@@ -144,30 +144,9 @@ Phone clients are where this shines, and they each have quirks:
 Keys: `↑↓`/`jk` move, `Enter` select, `q`/`Esc` back, bracketed letter
 (`n o k a b /`) jumps straight to the action.
 
-## Stuff that went wrong
+## AI
 
-**Trust dialog deadlock.** `claude`'s first-run "trust this folder?" prompt
-blocks a detached backend forever: tmux gives the pane a real pty, so `claude`
-thinks it has a terminal and prompts, but nobody's attached to answer, so the RC
-session never registers. Looks like the launch no-op'd. Fix: `ctc` checks
-`hasTrustDialogAccepted` in `~/.claude.json` and pre-writes it (after a one-time
-`[y/N]`) before launch. The non-TTY auto-skip `claude -p` gets doesn't fire here,
-because the pty *is* a real terminal as far as `claude` can tell.
-
-**`set -e` footgun, twice.** Under `set -euo pipefail`, a function whose last
-statement is a bare `[ … ]` returns that test's exit code; a false test in tail
-position kills the script. Bit me in two functions, both only on the unset-config
-path my tests masked. Every such function ends `return 0` now. Test the path
-where the env vars *aren't* set.
-
-## The AI-assisted part
-
-Claude Code wrote most of the code; I'm an infra guy, not a bash lifer. The
-judgment is mine: tmux-as-keepalive, defaulting to `acceptEdits` not full auto
-(a detached, remotely-driven agent shouldn't run commands unwatched), killing a `--sandbox`
-flag a draft hallucinated that doesn't exist on `claude` 2.1.150, keeping the
-800-line engine one portable file with no hardcoded paths. That part doesn't come
-from a model.
+Most of the code was written with Claude Code.
 
 ## License
 
