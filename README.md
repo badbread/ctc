@@ -1,11 +1,11 @@
 # ctc: Claude Terminal Connect
 
-Your phone SSHes into your box and fires `ctc` to launch a `claude` backend. From
-that point it's loose: the session lives in the Claude app, so you keep coding on
-the phone, pick it up in a browser, or switch to the desktop app, whichever's in
-front of you. The phone's the gateway, not a leash. The real `claude` on your
-real machine, your repos, your tools, showing up in the app you already use. Not
-a web clone, not a chat-bot bridge.
+SSH into your box, fire `ctc`, and it launches a `claude` backend. From that point
+it's loose: the session lives in the Claude app, so you drive it from wherever you
+are, on whatever you're holding. Phone, browser, desktop app, pick it up and put
+it down across all three. The real `claude` on your real machine, your repos, your
+tools, showing up in the app you already use. Not a web clone, not a chat-bot
+bridge.
 
 `ctc` launches `claude --remote-control` in a detached tmux session, one per
 project, and hands you an arrow-key TUI to manage them. Detached, so it outlives
@@ -187,7 +187,7 @@ where the env vars *aren't* set.
 
 Claude Code wrote most of the code; I'm an infra guy, not a bash lifer. The
 judgment is mine: tmux-as-keepalive, defaulting to `acceptEdits` not full auto
-(a phone-reachable agent shouldn't run commands unwatched), killing a `--sandbox`
+(a detached, remotely-driven agent shouldn't run commands unwatched), killing a `--sandbox`
 flag a draft hallucinated that doesn't exist on `claude` 2.1.150, keeping the
 800-line engine one portable file with no hardcoded paths. That part doesn't come
 from a model.
