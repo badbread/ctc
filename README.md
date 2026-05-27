@@ -1,13 +1,18 @@
 # ctc — Claude Terminal Connect
 
-Start a **Claude Code** session on your always-on Linux box straight from your
-phone, then walk away. SSH in (over Tailscale or WireGuard), pick a project from
-a phone-friendly menu, and `ctc` launches `claude --remote-control` as a detached
-session you drive from the official **Claude app** — lock your phone or lose
-signal and it keeps running. It's a single bash script: no web server, no
-Electron, no browser-exposed shell, just the SSH you already trust.
-Claude-Code-native by design (Shift+Tab permission modes, flag-accurate options)
-and safe by default (`acceptEdits`, never silent full-auto).
+**Drive your own local Claude Code from the native Claude app.** `ctc` launches
+the `claude` already installed on your always-on Linux box as a detached,
+Remote-Control-enabled backend — so the session shows up in the official **Claude
+mobile/web app** and you steer your real machine, your real repos, your real
+tools, from the app you already use. No web UI to host, no browser file tree, no
+third-party bot hop.
+
+Start it from your phone in two keystrokes (SSH in over Tailscale/WireGuard, pick
+a project from a menu), then walk away — lock the phone or lose signal and the
+session keeps running. It's a single bash script: no server, no Electron, just
+the SSH you already trust. Claude-Code-native by design (Shift+Tab permission
+modes, flag-accurate options) and safe by default (`acceptEdits`, never silent
+full-auto).
 
 ### Demo
 
