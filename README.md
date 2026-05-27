@@ -1,44 +1,20 @@
 # ctc: Claude Terminal Connect
 
-SSH into your box, fire `ctc`, and it launches a `claude` backend. From that point
-it's loose: the session lives in the Claude app, so you drive it from wherever you
-are, on whatever you're holding. Phone, browser, desktop app, pick it up and put
-it down across all three. The real `claude` on your real machine, your repos, your
-tools, showing up in the app you already use. Not a web clone, not a chat-bot
-bridge.
+**TL;DR** — _SSH to your Linux box, launch a session with `ctc`, then drive it from the native Claude app._
 
-`ctc` launches `claude --remote-control` in a detached tmux session, one per
-project, and hands you an arrow-key TUI to manage them. Detached, so it outlives
-the shell that started it; the session shows up in the app and keeps running
-after you disconnect. One bash file, no daemon to host, no extra attack surface.
-Just the SSH you already trust.
+`ctc` runs `claude --remote-control` in a detached tmux session, one per
+project, and hands you an arrow-key TUI to manage them. Detached, so it
+outlives the shell that started it; the session keeps running in the Claude
+app after you disconnect. One bash file, no daemon, just the SSH you already
+trust.
 
 ### Demo
 
 ![ctc demo](docs/media/demo.gif)
 
-Launch a backend, trust it once, watch it land in the app (phone shown here, but
-it's the same session you'd pick up in the browser or desktop app), then manage
-the live ones: attach, detach, flip launch/permission modes. Source cast:
-[`docs/media/demo.cast`](docs/media/demo.cast) — regenerate with
-[`tools/gen_demo_cast.py`](tools/gen_demo_cast.py).
-
-```
-╭────────────────────────────────────────────────────────╮
-│ ctc · claude terminal connect                          │
-│ dev · opus · acceptEdits · rc:on · detached           │
-╰────────────────────────────────────────────────────────╯
-
- 2 running · select to manage
- ▎ ● my-api               live · connect from app
-   ● homelab-infra        live · connect from app
-   ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
-   [n] launch new session…
-   [o] options
-   [q] quit
-
-   ↑↓ move · ⏎ select · ⇧⇥ cycle mode · q quit
-```
+The session manager: launch a new backend, manage the live ones — attach,
+detach, flip launch/permission modes. Whatever shows up here also shows up
+in the Claude app.
 
 ## Why
 
@@ -51,15 +27,14 @@ claude
 /remote-control      # inside claude, to push it to the app
 ```
 
-Plus the session died with the shell that launched it. Drop the SSH connection,
-lose `claude`. And typing into a raw SSH terminal on a phone is its own punishment:
-no autocomplete, no spellcheck, no dictation, just you and a keyboard the size of a
-stick of gum.
+And the session died with the SSH connection — drop the shell, lose `claude`.
+Typing into a raw SSH terminal on a phone is its own punishment: no
+autocomplete, no spellcheck, no dictation, no screenshots.
 
 `ctc` collapses the launch to picking a project from a menu, and because the
-backend's detached, the SSH session was only ever the ignition. Close it and drive
-`claude` from the app, where you get autocomplete, spellcheck, and dictation for
-free, on whatever device you're holding.
+backend's detached, the SSH session was only ever the ignition. Close it and
+drive `claude` from the app — autocomplete, spellcheck, dictation, screenshots,
+on whatever device you're holding.
 
 ## How (and the clock on it)
 
