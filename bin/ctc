@@ -556,8 +556,11 @@ mode_label() {
   esac
 }
 rc_label() {
-  if [ "$RC" = "on" ]; then printf '%sRC●%s' "$GRN" "$RST"
-  else printf '%sRC○%s' "$GRY" "$RST"; fi
+  # Plain on/off — matches the other OPTIONS rows' simple-value style
+  # (detached, auto, default). RC●/RC○ read as a cryptic status code next to
+  # the "remote control" row label.
+  if [ "$RC" = "on" ]; then printf '%son%s' "$GRN" "$RST"
+  else printf '%soff%s' "$GRY" "$RST"; fi
 }
 model_label() {
   case "$MODEL" in
@@ -570,8 +573,8 @@ launch_short() {
   else printf '%sattach%s' "$GRN" "$RST"; fi
 }
 continue_label() {
-  if [ "$CONTINUE" = "on" ]; then printf '%scontinue●%s' "$GRN" "$RST"
-  else printf '%scontinue○%s' "$GRY" "$RST"; fi
+  if [ "$CONTINUE" = "on" ]; then printf '%son%s' "$GRN" "$RST"
+  else printf '%soff%s' "$GRY" "$RST"; fi
 }
 # Shift+Tab handler: cycle permission mode in VALID_MODES order, persist, redraw.
 cycle_mode() {
