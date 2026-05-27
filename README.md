@@ -15,12 +15,13 @@ Just the SSH you already trust.
 
 ### Demo
 
-[![asciicast](https://asciinema.org/a/REPLACE_WITH_ID.svg)](https://asciinema.org/a/REPLACE_WITH_ID)
+![ctc demo](docs/media/demo.gif)
 
 Launch a backend, trust it once, watch it land in the app (phone shown here, but
 it's the same session you'd pick up in the browser or desktop app), then manage
-the live ones: attach, detach, flip launch/permission modes. Cast at
-[`docs/media/demo.cast`](docs/media/demo.cast).
+the live ones: attach, detach, flip launch/permission modes. Source cast:
+[`docs/media/demo.cast`](docs/media/demo.cast) — regenerate with
+[`tools/gen_demo_cast.py`](tools/gen_demo_cast.py).
 
 ```
 ╭────────────────────────────────────────────────────────╮

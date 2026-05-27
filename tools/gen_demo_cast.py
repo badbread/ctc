@@ -235,8 +235,16 @@ s+=f"   {GRN}●{RST} one bash file · no server · drive from the Claude app\r\
 s+=f"   {C2}github.com/badbread/ctc{RST}\r\n"
 emit(s,0.3); pause(3.0)
 
+# NB: asciicast v2 requires a `palette` field when `theme` is set — agg 1.8+
+# rejects theme-without-palette as "not a v1/v2/v3 asciicast file". The events
+# themselves use 256-color SGR codes, so this palette only affects the
+# standard 16 ANSI slots — a sensible dark fallback is fine.
 cast={"version":2,"width":COLS,"height":ROWS,
-      "theme":{"fg":"#c8d3f5","bg":"#10131c"}}
+      "theme":{"fg":"#c8d3f5","bg":"#10131c",
+               "palette":"#10131c:#ff5370:#c3e88d:#ffcb6b:"
+                         "#82aaff:#c792ea:#89ddff:#c8d3f5:"
+                         "#3b4261:#ff5370:#c3e88d:#ffcb6b:"
+                         "#82aaff:#c792ea:#89ddff:#c8d3f5"}}
 with open(sys.argv[1],"w") as f:
     f.write(json.dumps(cast)+"\n")
     for ev in events:
