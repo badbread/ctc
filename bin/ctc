@@ -630,15 +630,44 @@ launch_label() {
   else printf '%sattach%s %s(open here over ssh)%s' "$GRN" "$RST" "$DIM" "$RST"; fi
 }
 
+# Interactive prompt to change BASE (the dir ctc scans for project repos).
+# Tilde-expands, offers to create the dir if it doesn't exist, persists.
+change_base() {
+  banner
+  printf '\n %scurrent projects dir:%s %s%s%s\n' "$DIM" "$RST" "$C2" "$BASE" "$RST"
+  printf ' %s(directory that contains your project folders / git repos)%s\n\n' "$DIM" "$RST"
+  printf ' %snew path%s [%s%s%s, enter to keep]: ' "$ORG" "$RST" "$C2" "$BASE" "$RST"
+  local ans
+  read -r ans
+  ans="${ans:-$BASE}"; ans="${ans/#\~/$HOME}"
+  if [ "$ans" = "$BASE" ]; then return 0; fi
+  if [ ! -d "$ans" ]; then
+    printf '\n %s⚠ doesn'\''t exist.%s create it? [y/N]: ' "$YEL" "$RST"
+    local yn
+    read -r yn
+    case "$yn" in
+      y|Y)
+        if ! mkdir -p "$ans" 2>/dev/null; then
+          printf ' %s✗ could not create %s%s\n' "$RED" "$ans" "$RST"; sleep 1; return 0
+        fi ;;
+      *) printf ' %skept%s\n' "$GRY" "$RST"; sleep 1; return 0 ;;
+    esac
+  fi
+  BASE="$ans"; save_cfg
+  printf ' %s✓ projects dir → %s%s%s\n' "$GRN" "$C2" "$BASE" "$RST"
+  sleep 1
+}
+
 # Settings screen, Claude-style arrow menu. Mirrors the real claude launch flags.
 options_screen() {
   while :; do
     local -a rows=(
-      "launch mode       → $(launch_label)"
-      "permission mode   → $(mode_label)   ${DIM}--permission-mode${RST}"
-      "model             → $(model_label)   ${DIM}--model${RST}"
-      "remote control    → $(rc_label)   ${DIM}--remote-control${RST}"
-      "continue last     → $(continue_label)   ${DIM}--continue${RST}"
+      "projects dir     → ${C2}${BASE}${RST}   ${DIM}where ctc scans for repos${RST}"
+      "launch mode      → $(launch_label)"
+      "permission mode  → $(mode_label)   ${DIM}--permission-mode${RST}"
+      "model            → $(model_label)   ${DIM}--model${RST}"
+      "remote control   → $(rc_label)   ${DIM}--remote-control${RST}"
+      "continue last    → $(continue_label)   ${DIM}--continue${RST}"
       "${GRY}back to menu${RST}"
     )
     render_extra() { render_options_footer; }
@@ -650,12 +679,13 @@ options_screen() {
     unset -f render_extra
     [ "$rc" -ne 0 ] && return 0           # cancelled -> back
     case "$PICK_INDEX" in
-      0) [ "$LAUNCH" = "detached" ] && LAUNCH=attach || LAUNCH=detached; save_cfg ;;
-      1) choose_mode ;;
-      2) choose_model ;;
-      3) [ "$RC" = "on" ] && RC=off || RC=on; save_cfg ;;
-      4) [ "$CONTINUE" = "on" ] && CONTINUE=off || CONTINUE=on; save_cfg ;;
-      5) return 0 ;;
+      0) change_base ;;
+      1) [ "$LAUNCH" = "detached" ] && LAUNCH=attach || LAUNCH=detached; save_cfg ;;
+      2) choose_mode ;;
+      3) choose_model ;;
+      4) [ "$RC" = "on" ] && RC=off || RC=on; save_cfg ;;
+      5) [ "$CONTINUE" = "on" ] && CONTINUE=off || CONTINUE=on; save_cfg ;;
+      6) return 0 ;;
     esac
   done
 }
