@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Fake `claude` for ctc test scenarios.
+# Records its invocation args to a log so tests can verify what ctc passed,
+# then sleeps so the spawning tmux session sees a live `claude` process (the
+# same way ctc's list_live() check expects).
+#
+# Override the log location with CLAUDE_STUB_LOG.
+LOG="${CLAUDE_STUB_LOG:-$HOME/.claude-stub.log}"
+{
+  printf -- '--- %s\n' "$(date -Iseconds)"
+  printf 'pid:  %s\n' "$$"
+  printf 'pwd:  %s\n' "$PWD"
+  printf 'args: '
+  printf '%q ' "$@"
+  printf '\n'
+} >> "$LOG"
+
+# Human-visible line if someone attaches
+printf '\033[1mstub claude\033[0m args: %s\n' "$*"
+printf '(log: %s · pid: %s)\n' "$LOG" "$$"
+
+# Keep the process alive so tmux's list-panes sees "claude" as the current
+# pane command (matching the real ctc liveness check). exec so signals
+# propagate cleanly.
+exec sleep 86400

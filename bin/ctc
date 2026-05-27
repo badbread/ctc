@@ -152,9 +152,11 @@ reset_terminal() {
   # `2>/dev/null` takes effect; and `[ -w /dev/tty ]` only checks the node's
   # permission bits, not openability (under docker exec -i without -t the node
   # exists but open() returns ENXIO). A brace group with its own stderr
-  # redirection catches bash's redirection error too — that's the form that
-  # actually stays quiet when there's no controlling terminal.
-  { printf '\033[?1000l\033[?1002l\033[?1003l\033[?1006l' > /dev/tty ; } 2>/dev/null
+  # redirection catches bash's redirection error text — but the brace group
+  # itself still exits non-zero, which under inherited set -e kills the trap
+  # *before* `return 0` runs, leaking that non-zero exit into the script's
+  # final exit code. `|| true` is the part that actually defangs it.
+  { printf '\033[?1000l\033[?1002l\033[?1003l\033[?1006l' > /dev/tty ; } 2>/dev/null || true
   return 0
 }
 trap reset_terminal EXIT
@@ -640,8 +642,11 @@ options_screen() {
       "${GRY}back to menu${RST}"
     )
     render_extra() { render_options_footer; }
-    pick_one "${BOLD}${C3} OPTIONS ${RST} ${GRY}apply to NEW sessions${RST}" "${rows[@]}"
-    local rc=$?
+    # set -e footgun: a bare `pick_one … ; rc=$?` would let set -e fire on
+    # pick_one's non-zero exit before rc=$? captures it. The `|| rc=$?`
+    # construct puts the call in an || list so set -e ignores the failure.
+    local rc=0
+    pick_one "${BOLD}${C3} OPTIONS ${RST} ${GRY}apply to NEW sessions${RST}" "${rows[@]}" || rc=$?
     unset -f render_extra
     [ "$rc" -ne 0 ] && return 0           # cancelled -> back
     case "$PICK_INDEX" in
@@ -770,8 +775,12 @@ menu() {
   fi
   local hk="n:$IDX_NEW o:$IDX_OPT"
   [ "$IDX_KILL" -ge 0 ] && hk="$hk k:$IDX_KILL"
-  PICK_SKIP=$IDX_DIV PICK_KEYS="$hk" PICK_SHIFTTAB=cycle_mode pick_one "$title" "${rows[@]}"
-  [ "$?" -ne 0 ] && { printf '%s  later.%s\n' "$GRY" "$RST"; exit 0; }
+  # set -e footgun: a bare `pick_one … ; [ "$?" -ne 0 ]` would let set -e
+  # fire on pick_one's non-zero (user-quit) exit before the test runs. The
+  # `|| rc=$?` construct puts the call in an || list so set -e ignores it.
+  local rc=0
+  PICK_SKIP=$IDX_DIV PICK_KEYS="$hk" PICK_SHIFTTAB=cycle_mode pick_one "$title" "${rows[@]}" || rc=$?
+  [ "$rc" -ne 0 ] && { printf '%s  later.%s\n' "$GRY" "$RST"; exit 0; }
 
   case "$PICK_INDEX" in
     "$IDX_NEW")  launch_new_screen; menu ;;
