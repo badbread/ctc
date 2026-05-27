@@ -40,9 +40,7 @@ position ctc as the first launcher to adopt native headless cleanly.
      headless one.
    - "Honest caveat" block: replace with "ctc adopted native headless in
      vX.Y — the tmux era is documented in git history."
-3. `CLAUDE.md`: update the "Core idea (and the clock on it)" section — the clock
-   has run out, in the good way.
-4. Comparison section: the "same keepalive problem" framing vs. Channels no
+3. Comparison section: the "same keepalive problem" framing vs. Channels no
    longer applies if Channels also adopts headless; revisit.
 
 ## What does NOT change

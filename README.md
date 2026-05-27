@@ -111,10 +111,12 @@ This is the part I actually live in.
   quit. `/exit` ends it.
 - **Kill.** `[k]` on one, or the multi-select screen (`Space` mark, `Enter`
   confirm) to reap a batch.
-- **Defaults in `[o]`**, persisted to config, applied to new sessions: launch
-  mode (`detached`/`attach`), permission mode (`acceptEdits`/`auto`/
-  `bypassPermissions`/`default`/`plan`, or Shift+Tab to cycle), model,
-  `--remote-control`, `--continue`. Every toggle maps to a real `claude` flag.
+- **Settings in `[o]`**, persisted to config: where ctc looks for projects
+  (projects dir + scan depth), plus the per-launch defaults applied to new
+  sessions — launch mode (`detached`/`attach`), permission mode
+  (`acceptEdits`/`auto`/`bypassPermissions`/`default`/`plan`, or Shift+Tab on
+  the main menu to cycle), model, `--remote-control`, `--continue`. Every
+  toggle maps to a real `claude` flag where one exists.
 
 ## One-tap launch
 

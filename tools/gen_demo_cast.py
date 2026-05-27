@@ -180,13 +180,15 @@ emit(f"\r\n{YEL}[detached]{RST} session keeps running.\r\n",0.3); pause(1.2)
 
 # ===========================================================================
 # SCENE 7 — OPTIONS screen: set default launch mode + flags (the nerdy part)
-def options(launch_lbl, mode_lbl, model_lbl, rc_lbl, cont_lbl, selidx):
+def options(base_val, depth_val, launch_lbl, mode_lbl, model_lbl, rc_lbl, cont_lbl, selidx):
     rows=[
-      f"launch mode       → {launch_lbl}",
-      f"permission mode   → {mode_lbl}   {D}--permission-mode{RST}",
-      f"model             → {model_lbl}   {D}--model{RST}",
-      f"remote control    → {rc_lbl}   {D}--remote-control{RST}",
-      f"continue last     → {cont_lbl}   {D}--continue{RST}",
+      f"projects dir     → {C2}{base_val}{RST}   {D}where ctc scans for repos{RST}",
+      f"scan depth       → {C2}{depth_val}{RST}   {D}levels under projects dir to scan{RST}",
+      f"launch mode      → {launch_lbl}",
+      f"permission mode  → {mode_lbl}   {D}--permission-mode{RST}",
+      f"model            → {model_lbl}   {D}--model{RST}",
+      f"remote control   → {rc_lbl}   {D}--remote-control{RST}",
+      f"continue last    → {cont_lbl}   {D}--continue{RST}",
       f"{GRY}back to menu{RST}",
     ]
     out=[]
@@ -197,16 +199,21 @@ def options(launch_lbl, mode_lbl, model_lbl, rc_lbl, cont_lbl, selidx):
     s+="\r\n".join(out)+"\r\n\r\n"+NAVF+"\r\n"
     return s
 
+BV="~/projects"; DV="2"
 det=f"{C2}detached{RST} {D}(backend / connect from app){RST}"
 att=f"{GRN}attach{RST} {D}(open here over ssh){RST}"
 acc=f"{YEL}acceptEdits{RST}"; planm=f"{C1}plan{RST}"
-screen(options(det, acc, f"{C1}opus{RST}", f"{GRN}on{RST}", f"{GRY}off{RST}", 0), hold=1.6)
+# enter options with projects dir highlighted (the top, where you actually
+# care first — "is ctc looking in the right place for my repos?")
+screen(options(BV, DV, det, acc, f"{C1}opus{RST}", f"{GRN}on{RST}", f"{GRY}off{RST}", 0), hold=1.6)
+# move down to launch mode (idx 2)
+screen(options(BV, DV, det, acc, f"{C1}opus{RST}", f"{GRN}on{RST}", f"{GRY}off{RST}", 2), hold=0.9, dt=0.4)
 # toggle launch mode -> attach
-screen(options(att, acc, f"{C1}opus{RST}", f"{GRN}on{RST}", f"{GRY}off{RST}", 0), hold=1.3, dt=0.4)
-# move to permission mode
-screen(options(att, acc, f"{C1}opus{RST}", f"{GRN}on{RST}", f"{GRY}off{RST}", 1), hold=0.9, dt=0.4)
+screen(options(BV, DV, att, acc, f"{C1}opus{RST}", f"{GRN}on{RST}", f"{GRY}off{RST}", 2), hold=1.2, dt=0.4)
+# move to permission mode (idx 3)
+screen(options(BV, DV, att, acc, f"{C1}opus{RST}", f"{GRN}on{RST}", f"{GRY}off{RST}", 3), hold=0.9, dt=0.4)
 # Shift+Tab cycles permission mode acceptEdits -> plan  (Claude Code feel)
-screen(options(att, planm, f"{C1}opus{RST}", f"{GRN}on{RST}", f"{GRY}off{RST}", 1), hold=1.6, dt=0.4)
+screen(options(BV, DV, att, planm, f"{C1}opus{RST}", f"{GRN}on{RST}", f"{GRY}off{RST}", 3), hold=1.6, dt=0.4)
 
 # ===========================================================================
 # SCENE 8 — kill flow (multi-select manage), then closing card

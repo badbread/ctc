@@ -1,5 +1,16 @@
-# local state / config that shouldn't be committed
+# local state / config that shouldn't be committed.
+# (inline `#` comments are NOT honored in .gitignore — must be on their own line)
+
 *.history
 .crc-*
 .ctc-*
+
+# local Claude Code project state
+.claude/
+
+# Synology NFS junk if you happen to develop on one
 @eaDir/
+
+# OS detritus
+.DS_Store
+Thumbs.db

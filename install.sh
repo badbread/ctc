@@ -24,7 +24,7 @@ cfgdir="${XDG_CONFIG_HOME:-$HOME/.config}/ctc"
 mkdir -p "$cfgdir"
 if [ ! -f "$cfgdir/config" ]; then
   install -m 0644 "$here/ctc.config.example" "$cfgdir/config"
-  echo "wrote default config: $cfgdir/config  (edit BASE to point at your projects)"
+  echo "wrote default config: $cfgdir/config  (edit BASE, or change it live from \`ctc\`'s [o] options)"
 else
   echo "config exists, left as-is: $cfgdir/config"
 fi
