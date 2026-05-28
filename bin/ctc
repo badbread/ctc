@@ -772,18 +772,23 @@ launch_new_screen() {
     case "$seen" in *" $r "*) ;; *) opts+=("$r"); seen+="$r ";; esac
   done < <(list_repos)
 
-  local i=0
+  local i=0 numhk=""
   for o in "${opts[@]}"; do
     name="$(basename "$o")"
-    if [ "$i" -lt "$hist_end" ]; then rows+=("$(printf '%s◷%s %s' "$YEL" "$RST" "$name")")
-    else rows+=("$(printf '%s·%s %s%s%s' "$GRY" "$RST" "$DIM" "$name" "$RST")"); fi
+    local tag="  "
+    if [ "$i" -lt 9 ]; then
+      tag="$(printf '%s[%d]%s' "$C3" $((i+1)) "$RST")"
+      numhk="$numhk $((i+1)):$i"
+    fi
+    if [ "$i" -lt "$hist_end" ]; then rows+=("$(printf '%s %s◷%s %s' "$tag" "$YEL" "$RST" "$name")")
+    else rows+=("$(printf '%s %s·%s %s%s%s' "$tag" "$GRY" "$RST" "$DIM" "$name" "$RST")"); fi
     i=$((i+1))
   done
   rows+=("${C3}┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄${RST}")
   rows+=("$(printf '%s[/]%s type / paste a path' "$ORG" "$RST")")
   local IDX_DIV=$((${#opts[@]})) IDX_PATH=$(( ${#opts[@]} + 1 ))
 
-  PICK_SKIP=$IDX_DIV PICK_KEYS="/:$IDX_PATH" \
+  PICK_SKIP=$IDX_DIV PICK_KEYS="/:$IDX_PATH$numhk" \
     pick_one "${DIM}launch new — pick a project${RST}" "${rows[@]}" || return 0
   case "$PICK_INDEX" in
     "$IDX_PATH")
