@@ -360,10 +360,11 @@ banner() {
   local mark_w=12   # 11 visible chars + 1 separator space
 
   # Right-column header (3 lines). Track plain widths separately for padding,
-  # since ANSI escapes don't count toward visible length.
+  # since ANSI escapes don't count toward visible length. No "ctc" in h1 — the
+  # pixel mark already spells it; repeating it read as a stutter.
   local h1_plain h1 h2_plain h2 h3_plain h3
-  h1_plain="ctc · Claude Terminal Connect       v${CTC_VERSION}"
-  h1="${BOLD}${MAG}ctc${RST}${DIM} · Claude Terminal Connect${RST}       ${DIM}v${CTC_VERSION}${RST}"
+  h1_plain="Claude Terminal Connect       v${CTC_VERSION}"
+  h1="${BOLD}Claude Terminal Connect${RST}       ${DIM}v${CTC_VERSION}${RST}"
   h2_plain="drive your local claude from the Claude app"
   h2="${DIM}${h2_plain}${RST}"
 
