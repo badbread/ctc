@@ -4,7 +4,8 @@
 # 256-color palette, same footer text) so the demo matches the tool exactly.
 import json, sys
 
-COLS, ROWS = 74, 22
+COLS, ROWS = 80, 24      # 80 wide so the banner renders its boxed pixel-art form
+VER = "0.1.0"            # keep in sync with bin/ctc CTC_VERSION
 E = "\x1b"
 RST=f"{E}[0m"; B=f"{E}[1m"; D=f"{E}[2m"
 C1=f"{E}[38;5;51m"; C2=f"{E}[38;5;45m"; C3=f"{E}[38;5;39m"
@@ -27,13 +28,27 @@ def boxline(text, plainlen, col=C3):
     return f"{col}│{RST} {text}"+" "*max(pad,0)+f"{col}│{RST}"
 
 def banner(host,model,mode,rc,launch):
-    l1p="ctc · claude terminal connect"
-    l1=f"{B}{MAG}ctc{RST}{D} · claude terminal connect{RST}"
+    # Mirror bin/ctc's wide (>=80 col) banner: pixel-art CTC mark on the left,
+    # 3-column header on the right (name+version / tagline / host+status), boxed.
+    # Python len() counts code points, so middots (1 col) measure correctly with
+    # no byte-vs-codepoint correction needed here.
+    m1='█▀▀ ▀█▀ █▀▀'; m2='█    █  █  '; m3='▀▀▀  ▀  ▀▀▀'
+    mark_w=12   # 11 visible mark cols + 1 separator space
+    h1p=f"Claude Terminal Connect       v{VER}"
+    h1=f"{B}Claude Terminal Connect{RST}       {D}v{VER}{RST}"
+    h2p="drive your local claude from the Claude app"
+    h2=f"{D}{h2p}{RST}"
     rcw="rc:on" if rc else "rc:off"
     rtag=f"{GRN}rc:on{RST}" if rc else f"{GRY}rc:off{RST}"
-    l2p=f"{host} · {model} · {mode} · {rcw} · {launch}"
-    l2=f"{C2}{host}{RST} · {C1}{model}{RST} · {YEL}{mode}{RST} · {rtag} · {C2}{launch}{RST}"
-    out=[top(),boxline(l1,len(l1p)),boxline(l2,len(l2p)),bot()]
+    h3p=f"{host} · {model} · {mode} · {rcw} · {launch}"
+    h3=f"{C2}{host}{RST} · {C1}{model}{RST} · {YEL}{mode}{RST} · {rtag} · {C2}{launch}{RST}"
+    out=[
+      top(),
+      boxline(f"{MAG}{m1}{RST} {h1}", mark_w+len(h1p)),
+      boxline(f"{MAG}{m2}{RST} {h2}", mark_w+len(h2p)),
+      boxline(f"{MAG}{m3}{RST} {h3}", mark_w+len(h3p)),
+      bot(),
+    ]
     return "\r\n".join(out)+"\r\n"
 
 def sep(): return f"{C3}"+"┄"*20+f"{RST}"
