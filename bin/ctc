@@ -789,7 +789,7 @@ launch_new_screen() {
   local IDX_DIV=$((${#opts[@]})) IDX_PATH=$(( ${#opts[@]} + 1 ))
 
   PICK_SKIP=$IDX_DIV PICK_KEYS="/:$IDX_PATH$numhk" \
-    pick_one "${DIM}launch new — pick a project${RST}" "${rows[@]}" || return 0
+    pick_one "${DIM}launch new — pick a project${RST}   ${DIM}(${YEL}◷${RST}${DIM}=recent · ·=scanned)${RST}" "${rows[@]}" || return 0
   case "$PICK_INDEX" in
     "$IDX_PATH")
       printf ' %spath:%s ' "$ORG" "$RST"; local p; read -r p
