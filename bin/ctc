@@ -20,6 +20,7 @@ mkdir -p "$CTC_CONFIG_DIR" "$CTC_STATE_DIR" 2>/dev/null || true
 # Defaults (overridable by the config file, then by env vars). BASE starts empty
 # so we can tell "never configured" apart from a real choice and run first-run
 # detection / prompt. resolve_base() fills it in after load_cfg.
+CTC_VERSION="0.1.0"                      # shown in the banner; bump on tag
 BASE=""                                  # where project dirs live (resolved below)
 CLAUDE_BIN="$(command -v claude || echo claude)"
 TMUX_BIN="$(command -v tmux || echo tmux)"
@@ -329,36 +330,67 @@ box_line() {
   printf '%s│%s\n' "$col" "$RST"
 }
 
-# The Claude-Code-style header: rounded box, wordmark + live status line.
+# Visible column width of a plain string whose only non-ASCII glyph is the
+# middot `·` (U+00B7 — 1 column, but 2 bytes). ${#s} is unreliable here: it
+# counts bytes in a C locale and code points in a UTF-8 one, so any math keyed
+# off it renders correctly in one locale and 1-col-per-middot off in the other.
+# Locale-independent trick: replace each middot with a single ASCII char, then
+# ${#…} of a pure-ASCII string is 1-per-column in every locale. The banner is
+# the only caller today; extend the substitution set if more 1-col multibyte
+# glyphs enter plain strings later.
+vw() {
+  local s="${1//·/.}"     # middots -> one ASCII char each; now pure ASCII
+  printf '%s' "${#s}"
+}
+
+# Claude-Code-style header: pixel-art `ctc` mark on the left, 3-column header
+# text on the right (name+version / tagline / host+status). Boxed on wide
+# terminals, flat on mid, compact text-only on phone-narrow. Borrows the
+# *structure* (left mark + columnar header) — never Claude Code's actual
+# robot/wordmark.
 banner() {
   clear 2>/dev/null || true
   local host; host="$(hostname)"
-  # Build plain + colored versions token-for-token so visible widths match
-  # exactly (padding is computed from the plain version's length).
-  local l1_plain="ctc · claude terminal connect"
-  local l1="${BOLD}${MAG}ctc${RST}${DIM} · claude terminal connect${RST}"
-  # status: full = host · model · mode · rc · launch; compact drops host & rc-off
-  # when the full line would overflow the (narrow phone) box interior.
+  local cols; cols="$(term_cols)"
+
+  # Pixel mark — "ctc" in 3×11 block letters. Distinct from Claude's robot.
+  local m1='█▀▀ ▀█▀ █▀▀'
+  local m2='█    █  █  '
+  local m3='▀▀▀  ▀  ▀▀▀'
+  local mark_w=12   # 11 visible chars + 1 separator space
+
+  # Right-column header (3 lines). Track plain widths separately for padding,
+  # since ANSI escapes don't count toward visible length.
+  local h1_plain h1 h2_plain h2 h3_plain h3
+  h1_plain="ctc · Claude Terminal Connect       v${CTC_VERSION}"
+  h1="${BOLD}${MAG}ctc${RST}${DIM} · Claude Terminal Connect${RST}       ${DIM}v${CTC_VERSION}${RST}"
+  h2_plain="drive your local claude from the Claude app"
+  h2="${DIM}${h2_plain}${RST}"
+
   local rcw; [ "$RC" = on ] && rcw="rc:on" || rcw="rc:off"
-  local full_plain compact_plain
-  full_plain="$(printf '%s · %s · %s · %s · %s' "$host" "$MODEL" "$MODE" "$rcw" "$LAUNCH")"
-  compact_plain="$(printf '%s · %s · %s · %s' "$MODEL" "$MODE" "$rcw" "$LAUNCH")"
+  h3_plain="$(printf '%s · %s · %s · %s · %s' "$host" "$MODEL" "$MODE" "$rcw" "$LAUNCH")"
   local modeltag mtag ltag rtag
   modeltag="$(model_label)"; mtag="$(mode_label)"; ltag="$(launch_short)"
   [ "$RC" = on ] && rtag="${GRN}rc:on${RST}" || rtag="${GRY}rc:off${RST}"
-  local interior; interior="$(box_w)"
-  local l2 l2_plain
-  if [ "${#full_plain}" -le "$((interior-1))" ]; then
-    l2_plain="$full_plain"
-    l2="$(printf '%s%s%s · %s · %s · %s · %s' "$C2" "$host" "$RST" "$modeltag" "$mtag" "$rtag" "$ltag")"
+  h3="${C2}${host}${RST} · ${modeltag} · ${mtag} · ${rtag} · ${ltag}"
+
+  if [ "$cols" -ge 80 ]; then
+    # Wide: pixel mark + columnar header, wrapped in a rounded box.
+    box_top "$C3"
+    box_line "${MAG}${m1}${RST} ${h1}" $((mark_w + $(vw "$h1_plain"))) "$C3"
+    box_line "${MAG}${m2}${RST} ${h2}" $((mark_w + $(vw "$h2_plain"))) "$C3"
+    box_line "${MAG}${m3}${RST} ${h3}" $((mark_w + $(vw "$h3_plain"))) "$C3"
+    box_bottom "$C3"
+  elif [ "$cols" -ge 60 ]; then
+    # Mid (laptop-narrow / mobile-landscape): mark + header, no box.
+    printf '%s%s%s %s\n' "$MAG" "$m1" "$RST" "$h1"
+    printf '%s%s%s %s\n' "$MAG" "$m2" "$RST" "$h2"
+    printf '%s%s%s %s\n' "$MAG" "$m3" "$RST" "$h3"
   else
-    l2_plain="$compact_plain"
-    l2="$(printf '%s · %s · %s · %s' "$modeltag" "$mtag" "$rtag" "$ltag")"
+    # Phone-narrow: drop the mark, single line of status. Host on its own line.
+    printf '%s%sctc%s · %s · %s · %s · %s\n' "$BOLD" "$MAG" "$RST" "$modeltag" "$mtag" "$rtag" "$ltag"
+    printf '%s%s%s\n' "$C2" "$host" "$RST"
   fi
-  box_top "$C3"
-  box_line "$l1" "${#l1_plain}" "$C3"
-  box_line "$l2" "${#l2_plain}" "$C3"
-  box_bottom "$C3"
 }
 
 # tmux session name for a given dir: claude-<basename>, sanitized for tmux.
