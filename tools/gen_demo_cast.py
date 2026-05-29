@@ -5,7 +5,7 @@
 import json, sys
 
 COLS, ROWS = 80, 24      # 80 wide so the banner renders its boxed pixel-art form
-VER = "0.1.0"            # keep in sync with bin/ctc CTC_VERSION
+VER = "0.2.0"            # keep in sync with bin/ctc CTC_VERSION
 E = "\x1b"
 RST=f"{E}[0m"; B=f"{E}[1m"; D=f"{E}[2m"
 C1=f"{E}[38;5;51m"; C2=f"{E}[38;5;45m"; C3=f"{E}[38;5;39m"

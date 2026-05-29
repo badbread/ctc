@@ -20,7 +20,7 @@ mkdir -p "$CTC_CONFIG_DIR" "$CTC_STATE_DIR" 2>/dev/null || true
 # Defaults (overridable by the config file, then by env vars). BASE starts empty
 # so we can tell "never configured" apart from a real choice and run first-run
 # detection / prompt. resolve_base() fills it in after load_cfg.
-CTC_VERSION="0.1.0"                      # shown in the banner; bump on tag
+CTC_VERSION="0.2.0"                      # shown in the banner; bump on tag
 BASE=""                                  # where project dirs live (resolved below)
 CLAUDE_BIN="$(command -v claude || echo claude)"
 TMUX_BIN="$(command -v tmux || echo tmux)"
